@@ -1,0 +1,1092 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14161a">
+<meta name="mobile-web-app-capable" content="yes">
+<title>הבית שלי</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: wall tablet — header strip, 3 columns (voice+timers+music | weather+agenda | shopping); stacks when narrow */
+:root{
+  --bg:#14161a; --panel:#1d2026; --line:#2c3038; --fg:#eef0f3; --dim:#9aa1ad;
+  --accent:#f2a93b; --ok:#3fbf7f; --bad:#e5604f; --sky:#6db3e8;
+  --font:"Rubik",system-ui,"Segoe UI",Arial,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:17px;
+  padding:env(safe-area-inset-top,0) max(16px,env(safe-area-inset-right,0)) env(safe-area-inset-bottom,0) max(16px,env(safe-area-inset-left,0))}
+.wrap{max-width:1400px;margin:0 auto;padding-block:18px;display:grid;gap:16px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.clock{font-size:clamp(34px,6vw,56px);font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:.5px;line-height:1}
+.date{color:var(--dim);font-size:15px;margin-top:4px}
+.quick{display:flex;gap:10px;flex-wrap:wrap}
+.qbtn{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);color:var(--fg);
+  text-decoration:none;padding:12px 16px;border-radius:14px;font:500 16px var(--font);cursor:pointer}
+a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+main{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}
+@media (max-width:1050px){main{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:680px){main{grid-template-columns:1fr}}
+.col{display:grid;gap:16px;min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;min-width:0}
+h2{margin:0 0 12px;font-size:14px;font-weight:500;color:var(--dim);letter-spacing:.6px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.hint{color:var(--dim);font-size:15px;line-height:1.5}
+.btn{background:var(--line);color:var(--fg);border:0;border-radius:12px;padding:10px 14px;font:500 15px var(--font);cursor:pointer}
+.pri{background:var(--accent);color:#1a1205;border:0;border-radius:12px;padding:11px 16px;font:500 15px var(--font);cursor:pointer}
+.count{background:var(--line);border-radius:999px;padding:2px 10px;color:var(--fg);font-size:13px}
+
+/* voice */
+.talk{display:flex;flex-direction:column;gap:12px}
+.microw{display:flex;align-items:center;gap:14px}
+#mic{width:88px;height:88px;flex:none;border-radius:50%;border:0;background:var(--accent);color:#1a1205;cursor:pointer;display:grid;place-items:center}
+#mic svg{width:40px;height:40px}
+#mic.on{background:var(--bad);color:#fff;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{transform:scale(1.06)}}
+@media (prefers-reduced-motion:reduce){#mic.on{animation:none}}
+form.type{display:flex;gap:8px}
+input.field{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:12px;padding:11px;font:16px var(--font)}
+#log{display:flex;flex-direction:column;gap:8px;max-height:24vh;overflow:auto}
+.msg{padding:9px 12px;border-radius:12px;line-height:1.5;max-width:92%}
+.me{background:var(--line);align-self:flex-start}
+.ai{background:rgba(242,169,59,.12);border:1px solid rgba(242,169,59,.3);align-self:flex-end}
+.err{background:rgba(229,96,79,.12);border:1px solid rgba(229,96,79,.4);align-self:flex-end}
+
+/* timers */
+#timers{display:grid;gap:8px}
+.timer{display:flex;align-items:center;gap:12px;background:var(--bg);border-radius:12px;padding:10px 12px}
+.timer .tm{font-size:28px;font-weight:500;font-variant-numeric:tabular-nums;min-width:4ch}
+.timer .tl{flex:1;min-width:0;color:var(--dim);overflow-wrap:anywhere}
+.timer button{background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;width:40px;height:40px;cursor:pointer;font-size:16px}
+.timer.ring{background:rgba(229,96,79,.18);border:1px solid var(--bad);animation:pulse 1s infinite}
+#rems{display:grid;gap:8px}
+.timer.rem .tm{font-size:20px;color:var(--accent)}
+.timer.rem.ring .tm{color:var(--fg)}
+#wakeBtn.on{background:rgba(63,191,127,.18);color:var(--ok);border:1px solid var(--ok)}
+
+/* photo slideshow + night clock (full-screen layer over the app) */
+#screen{position:fixed;inset:0;z-index:50;background:#000;overflow:hidden}
+#screen .ph{position:absolute;inset:0;opacity:0;transition:opacity 1.6s ease}
+#screen .ph.show{opacity:1}
+#screen img{position:absolute;inset:0;width:100%;height:100%;max-width:none}
+#screen img.bg{object-fit:cover;filter:blur(28px) brightness(.45);transform:scale(1.12)}
+#screen img.fg{object-fit:contain}
+.scClock{position:absolute;bottom:max(24px,env(safe-area-inset-bottom,0px));right:max(32px,env(safe-area-inset-right,0px));color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.65);font-variant-numeric:tabular-nums;text-align:right}
+.scClock .t{font-size:clamp(52px,8vw,104px);font-weight:500;line-height:1}
+.scClock .d{font-size:19px;opacity:.85;margin-top:6px}
+#screen.night .ph{display:none}
+#screen.night .scClock{color:#62676f;text-shadow:none;transform:translate(50%,-50%);transition:top 2s,right 2s}
+@media (prefers-reduced-motion:reduce){#screen .ph,#screen.night .scClock{transition:none}}
+.step .opt{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--dim);font-size:15px}
+.step .opt input,.step .opt select{width:auto;background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:6px 8px;font:15px var(--font)}
+.step label.pri{display:inline-block}
+
+/* music */
+.now{display:flex;gap:14px;align-items:center}
+.art{width:76px;height:76px;border-radius:10px;background:var(--line);flex:none;object-fit:cover}
+.tt{font-weight:700;font-size:18px;overflow-wrap:anywhere}
+.ar{color:var(--dim);overflow-wrap:anywhere;font-size:15px}
+.ctrls{display:flex;gap:10px;margin-top:12px;justify-content:center}
+.ctrls button{width:52px;height:52px;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:20px;cursor:pointer}
+.vol{display:flex;align-items:center;gap:10px;margin-top:10px}
+.vol input{flex:1}
+.devs{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.dev{background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:999px;padding:8px 13px;font:15px var(--font);cursor:pointer}
+.dev.active{border-color:var(--ok);color:var(--ok)}
+
+/* weather */
+.wnow{display:flex;align-items:center;gap:14px}
+.wicon{font-size:52px;line-height:1}
+.wtemp{font-size:46px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1}
+.wdesc{color:var(--dim);font-size:15px;line-height:1.5}
+.hours{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin-top:14px;text-align:center}
+.hours div{background:var(--bg);border-radius:10px;padding:8px 2px;font-size:14px;font-variant-numeric:tabular-nums}
+.hours b{display:block;font-weight:500;font-size:16px}
+.hours small{color:var(--sky)}
+.week{display:grid;gap:4px;margin-top:14px}
+.day{display:grid;grid-template-columns:4.5em 2em 1fr auto;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-variant-numeric:tabular-nums;font-size:15px}
+.day .rain{color:var(--sky);font-size:13px}
+.bar{display:block;height:6px;border-radius:3px;background:var(--line);position:relative}
+.bar i{position:absolute;top:0;bottom:0;border-radius:3px;background:linear-gradient(90deg,var(--sky),var(--accent))}
+
+/* agenda */
+.ev{display:grid;grid-template-columns:5.2em 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.ev time{color:var(--accent);font-variant-numeric:tabular-nums;font-size:15px}
+.ev .t{overflow-wrap:anywhere}
+.ev .l{color:var(--dim);font-size:13px;overflow-wrap:anywhere}
+.dayhead{color:var(--dim);font-size:13px;margin:10px 0 2px;letter-spacing:.5px}
+.dayhead:first-child{margin-top:0}
+
+/* shopping */
+#shop{list-style:none;margin:0;padding:0;display:grid}
+#shop li{display:flex;align-items:center;gap:10px;padding:9px 4px;border-top:1px solid var(--line)}
+#shop li:first-child{border-top:0}
+#shop button.chk{width:28px;height:28px;flex:none;border-radius:8px;border:2px solid var(--dim);background:none;cursor:pointer;color:var(--ok);font-size:16px}
+#shop span{flex:1;min-width:0;overflow-wrap:anywhere}
+
+footer{display:flex;justify-content:space-between;align-items:center;color:var(--dim);font-size:14px;gap:10px;flex-wrap:wrap}
+.link{background:none;border:0;color:var(--dim);font:14px var(--font);text-decoration:underline;cursor:pointer}
+
+/* setup wizard */
+dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:18px;max-width:640px;width:calc(100% - 32px);max-height:calc(100% - 32px);padding:20px}
+dialog::backdrop{background:rgba(0,0,0,.65)}
+dialog h3{margin:0 0 4px;font-size:22px}
+.step{border-top:1px solid var(--line);padding-block:16px;display:grid;gap:8px}
+.stephead{display:flex;align-items:center;gap:10px;font-weight:500;font-size:18px}
+.badge{font-size:13px;font-weight:500;border-radius:999px;padding:3px 10px;margin-inline-start:auto;white-space:nowrap}
+.badge.done{background:rgba(63,191,127,.15);color:var(--ok)}
+.badge.todo{background:rgba(242,169,59,.15);color:var(--accent)}
+.badge.opt{background:var(--line);color:var(--dim)}
+.step ol{margin:0;padding-inline-start:22px;line-height:1.7;color:var(--dim);font-size:15px}
+.step ol b{color:var(--fg);font-weight:500}
+.step input{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:10px;font:15px var(--font);direction:ltr}
+.copyrow{display:flex;gap:8px;align-items:center}
+.copyrow code{flex:1;min-width:0}
+code{direction:ltr;unicode-bidi:embed;background:var(--bg);padding:6px 8px;border-radius:8px;font-size:13px;overflow-wrap:anywhere;display:inline-block}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+dialog a{color:var(--sky)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="clock" id="clock">--:--</div>
+      <div class="date" id="date"></div>
+    </div>
+    <div class="quick">
+      <a class="qbtn" href="https://chatgpt.com/" target="_blank" rel="noopener">ChatGPT</a>
+      <a class="qbtn" href="https://open.spotify.com/" target="_blank" rel="noopener">Spotify</a>
+      <a class="qbtn" href="https://alexa.amazon.com/" target="_blank" rel="noopener">Alexa</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="col">
+      <section class="panel talk">
+        <div class="microw">
+          <button id="mic" aria-label="דבר עם Claude">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </button>
+          <div class="hint" id="hint">לחץ ודבר, או אמור "היי בית" ואחריו בקשה: "טיימר 10 דקות לפסטה", "תזכיר לי מחר ב-8 להוציא את הזבל", "תוסיף חלב וביצים", "תשים מוזיקה בסלון"</div>
+        </div>
+        <form class="type" id="typeForm">
+          <input class="field" id="txt" placeholder="או הקלד כאן…" autocomplete="off">
+          <button class="btn" type="submit">שלח</button>
+        </form>
+        <div class="row" style="align-items:center"><button class="btn" id="wakeBtn" aria-pressed="false">האזנה רציפה: כבויה</button><span class="hint" id="wakeHint"></span></div>
+        <div id="timers"></div>
+        <div id="rems"></div>
+        <div id="log" aria-live="polite"></div>
+      </section>
+
+      <section class="panel">
+        <h2>מתנגן עכשיו</h2>
+        <div class="now">
+          <img class="art" id="art" alt="">
+          <div style="min-width:0">
+            <div class="tt" id="tt">שום דבר לא מתנגן</div>
+            <div class="ar" id="ar"></div>
+            <div class="ar" id="where"></div>
+          </div>
+        </div>
+        <div class="ctrls">
+          <button id="bNext" aria-label="הבא">⏭</button>
+          <button id="bPlay" aria-label="נגן או השהה">⏯</button>
+          <button id="bPrev" aria-label="הקודם">⏮</button>
+        </div>
+        <div class="vol"><span>🔈</span><input type="range" id="vol" min="0" max="100" value="50" aria-label="עוצמה"><span>🔊</span></div>
+        <div class="devs" id="devs"></div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel">
+        <h2>מזג אוויר · ראשון לציון</h2>
+        <div class="wnow">
+          <div class="wicon" id="wIcon">·</div>
+          <div>
+            <div class="wtemp" id="wTemp">--°</div>
+            <div class="wdesc" id="wDesc">טוען…</div>
+          </div>
+        </div>
+        <div class="hours" id="wHours"></div>
+        <div class="week" id="wWeek"></div>
+      </section>
+
+      <section class="panel">
+        <h2>לו"ז</h2>
+        <div id="agenda"></div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel">
+        <h2>רשימת קניות <span class="count" id="shopCount">0</span></h2>
+        <form class="type" id="shopForm" style="margin-bottom:10px">
+          <input class="field" id="shopTxt" placeholder="הוסף פריט…" autocomplete="off">
+          <button class="btn" type="submit">הוסף</button>
+        </form>
+        <ul id="shop"></ul>
+        <div class="hint" id="shopHint" style="margin-top:8px"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <span id="status"></span>
+    <span><span id="ver"></span> · <button class="link" id="showPhotos">תמונות</button> · <button class="link" id="openSetup">הגדרות</button></span>
+  </footer>
+</div>
+
+<dialog id="setup">
+  <h3>הגדרה ראשונה</h3>
+  <p class="hint" style="margin:0 0 8px">שלושה חיבורים, כל אחד פעם אחת בלבד. מזג האוויר והשעון כבר עובדים.</p>
+
+  <div class="step">
+    <div class="stephead">1 · Claude (העוזר הקולי) <span class="badge" id="stClaude"></span></div>
+    <ol>
+      <li>היכנס ל-<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> והירשם</li>
+      <li>ב-<b>Billing</b> הטען קרדיט (5$ מספיקים לחודשים)</li>
+      <li>ב-<b>API Keys</b> לחץ <b>Create Key</b>, העתק והדבק כאן</li>
+    </ol>
+    <input id="akey" type="password" placeholder="sk-ant-…" autocomplete="off" aria-label="Anthropic API Key">
+  </div>
+
+  <div class="step">
+    <div class="stephead">2 · ספוטיפיי <span class="badge" id="stSpotify"></span></div>
+    <ol>
+      <li>היכנס ל-<a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> ← <b>Create app</b></li>
+      <li>שם: Home Tablet. ב-<b>Redirect URIs</b> הדבק את הכתובת הזו ולחץ <b>Add</b>:</li>
+    </ol>
+    <div class="copyrow"><code class="redir"></code><button class="btn copy">העתק</button></div>
+    <ol start="3">
+      <li>סמן <b>Web API</b> ← <b>Save</b> ← <b>Settings</b> ← העתק את ה-<b>Client ID</b></li>
+    </ol>
+    <input id="cid" placeholder="Client ID" autocomplete="off" aria-label="Spotify Client ID">
+    <div class="row"><button class="pri" id="loginSp">התחבר לספוטיפיי</button></div>
+  </div>
+
+  <div class="step">
+    <div class="stephead">3 · מיקרוסופט (לו"ז ורשימת קניות) <span class="badge" id="stMs"></span></div>
+    <ol>
+      <li>היכנס ל-<a href="https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade" target="_blank" rel="noopener">רישום אפליקציה במיקרוסופט</a> (עם החשבון של האאוטלוק)</li>
+      <li>שם: Home Tablet. בסוג החשבון בחר <b>Accounts in any organizational directory and personal Microsoft accounts</b></li>
+      <li>ב-<b>Redirect URI</b> בחר <b>Single-page application (SPA)</b> והדבק:</li>
+    </ol>
+    <div class="copyrow"><code class="redir"></code><button class="btn copy">העתק</button></div>
+    <ol start="4">
+      <li>לחץ <b>Register</b> והעתק את <b>Application (client) ID</b></li>
+    </ol>
+    <input id="mcid" placeholder="Application (client) ID" autocomplete="off" aria-label="Microsoft Application ID">
+    <div class="row"><button class="pri" id="loginMs">התחבר למיקרוסופט</button></div>
+  </div>
+
+  <div class="step">
+    <div class="stephead">4 · מסך: תמונות ומצב לילה <span class="badge opt">רשות</span></div>
+    <ol>
+      <li>לחץ <b>בחר תמונות</b>. בחלון שנפתח עבור ל-<b>אלבומים</b>, בחר את האלבום מגוגל פוטוס וסמן תמונות</li>
+      <li>אפשר לחזור על זה כדי להוסיף עוד. התמונות נשמרות על הטאבלט</li>
+    </ol>
+    <div class="row" style="align-items:center">
+      <label class="pri" for="photoIn">בחר תמונות</label>
+      <input type="file" id="photoIn" accept="image/*" multiple hidden>
+      <span class="hint" id="photoCount"></span>
+      <button class="btn" id="photoClear">מחק את כל התמונות</button>
+    </div>
+    <label class="opt">התמונות יתחילו אחרי
+      <select id="idleMin"><option value="1">דקה</option><option value="2">2 דקות</option><option value="5">5 דקות</option><option value="10">10 דקות</option></select>
+      בלי נגיעה</label>
+    <label class="opt"><input type="checkbox" id="nightOn"> מצב לילה (מסך שחור ושעון) בין
+      <input type="time" id="nightFrom"> ל- <input type="time" id="nightTo"></label>
+  </div>
+
+  <div class="step">
+    <div class="row"><button class="btn" id="closeSetup">סיום</button></div>
+  </div>
+</dialog>
+
+<div id="screen" hidden>
+  <div class="ph" id="phA"><img class="bg" alt=""><img class="fg" alt=""></div>
+  <div class="ph" id="phB"><img class="bg" alt=""><img class="fg" alt=""></div>
+  <div class="scClock" id="scClock"><div class="t" id="scTime"></div><div class="d" id="scDate"></div></div>
+</div>
+
+<script>
+const APP_VERSION = "2.2.0";
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try{return localStorage.getItem(k)}catch(e){return null} },
+  set(k,v){ try{ v==null?localStorage.removeItem(k):localStorage.setItem(k,v) }catch(e){} }
+};
+const REDIRECT = location.origin + location.pathname;
+const MODEL = "claude-haiku-5-5";
+const TZ = "Asia/Jerusalem";
+const LAT = 31.964, LON = 34.804; // ראשון לציון
+$("ver").textContent = "גרסה " + APP_VERSION;
+document.querySelectorAll(".redir").forEach(el=>el.textContent = REDIRECT);
+document.querySelectorAll(".copy").forEach(b=>b.onclick = async ()=>{
+  try{ await navigator.clipboard.writeText(REDIRECT); b.textContent = "הועתק ✓" }
+  catch(e){ const r = document.createRange(); r.selectNodeContents(b.previousElementSibling); getSelection().removeAllRanges(); getSelection().addRange(r); b.textContent = "סומן, העתק ידנית" }
+  setTimeout(()=>b.textContent = "העתק", 2500);
+});
+
+/* ---------- clock, screen on, activity ---------- */
+function tick(){
+  const d = new Date();
+  $("clock").textContent = $("scTime").textContent = d.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
+  $("date").textContent = $("scDate").textContent = d.toLocaleDateString("he-IL",{weekday:"long",day:"numeric",month:"long",timeZone:TZ});
+}
+tick(); setInterval(tick, 10000);
+async function keepAwake(){ try{ await navigator.wakeLock.request("screen") }catch(e){} }
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible"){ keepAwake(); checkUpdate(); resumeListening() } });
+keepAwake();
+let lastTouch = Date.now();
+["pointerdown","keydown"].forEach(ev=>addEventListener(ev, ()=>lastTouch = Date.now(), true));
+
+function say(text, cls){
+  const el = document.createElement("div");
+  el.className = "msg " + cls; el.textContent = text;
+  $("log").prepend(el);
+  while($("log").children.length > 30) $("log").lastChild.remove();
+}
+function status(t){ $("status").textContent = t }
+function esc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])) }
+
+/* ---------- automatic updates ---------- */
+// The app checks version.json on the site; when you upload a new version, the tablet reloads itself
+// at a quiet moment (2+ minutes without touch, not listening, no ringing timer). Settings are kept.
+async function checkUpdate(){
+  try{
+    const r = await fetch("version.json?t="+Date.now(), {cache:"no-store"});
+    if(!r.ok) return;
+    const v = (await r.json()).version;
+    if(v && v !== APP_VERSION) waitQuietThenReload();
+  }catch(e){}
+}
+let reloadPending = false;
+function waitQuietThenReload(){
+  if(reloadPending) return; reloadPending = true;
+  const t = setInterval(()=>{
+    const ringing = timers.some(x=>x.ringing) || ringingIds.size > 0;
+    if(Date.now()-lastTouch > 120000 && !armedUntil && !ringing && !busy && !speaking){ clearInterval(t); location.reload() }
+  }, 15000);
+}
+if("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+setInterval(checkUpdate, 15*60*1000);
+
+/* ---------- OAuth PKCE (Spotify + Microsoft) ---------- */
+function rnd(n){ const a=new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a,b=>("0"+b.toString(16)).slice(-2)).join("") }
+async function challenge(s){
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return btoa(String.fromCharCode(...new Uint8Array(h))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+const PROVIDERS = {
+  sp:{ cidKey:"cid", auth:"https://accounts.spotify.com/authorize", token:"https://accounts.spotify.com/api/token",
+       scope:"user-read-playback-state user-modify-playback-state user-read-currently-playing" },
+  ms:{ cidKey:"mcid", auth:"https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+       token:"https://login.microsoftonline.com/common/oauth2/v2.0/token",
+       scope:"offline_access User.Read Calendars.ReadWrite Tasks.ReadWrite" }
+};
+async function login(p, silent){
+  const P = PROVIDERS[p], cid = store.get(P.cidKey);
+  if(!cid){ openSetup(); return }
+  const v = rnd(48); store.set(p+"_pkce", v);
+  const q = {client_id:cid,response_type:"code",redirect_uri:REDIRECT,scope:P.scope,state:p+(silent?"_silent":""),
+    code_challenge_method:"S256",code_challenge:await challenge(v)};
+  if(silent) q.prompt = "none";
+  location.href = P.auth + "?" + new URLSearchParams(q);
+}
+async function tokenReq(p, body){
+  const P = PROVIDERS[p];
+  const r = await fetch(P.token,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({...body, client_id:store.get(P.cidKey)})});
+  const j = await r.json();
+  if(!r.ok) throw new Error(j.error_description || j.error || "שגיאת התחברות");
+  store.set(p+"_at", j.access_token);
+  store.set(p+"_exp", String(Date.now() + (j.expires_in-60)*1000));
+  if(j.refresh_token) store.set(p+"_rt", j.refresh_token);
+}
+async function handleRedirect(){
+  const q = new URLSearchParams(location.search);
+  const state = q.get("state")||"", p = state.split("_")[0], silent = state.endsWith("_silent");
+  if(!PROVIDERS[p]) return;
+  history.replaceState(null,"",REDIRECT);
+  if(q.get("error")){
+    store.set(p+"_rt", null);
+    say(silent ? "החיבור למיקרוסופט פג. פתח הגדרות והתחבר שוב." : "ההתחברות נכשלה: "+(q.get("error_description")||q.get("error")),"err");
+    return;
+  }
+  try{
+    await tokenReq(p,{grant_type:"authorization_code",code:q.get("code"),redirect_uri:REDIRECT,code_verifier:store.get(p+"_pkce")});
+    if(!silent){ say(p==="sp"?"התחברתי לספוטיפיי ✓":"התחברתי למיקרוסופט ✓","ai"); if(!allConnected()) openSetup() }
+  }catch(e){ say("ההתחברות נכשלה: "+e.message,"err") }
+}
+async function token(p){
+  if(store.get(p+"_at") && Date.now() < +store.get(p+"_exp")) return store.get(p+"_at");
+  if(!store.get(p+"_rt")) throw new Error(p==="sp"?"ספוטיפיי לא מחובר (הגדרות)":"מיקרוסופט לא מחובר (הגדרות)");
+  try{ await tokenReq(p,{grant_type:"refresh_token",refresh_token:store.get(p+"_rt")}) }
+  catch(e){
+    // Microsoft refresh tokens for browser apps last 24h: renew silently using the existing Microsoft sign-in
+    if(p==="ms"){ if(Date.now()-lastTouch > 30000 && !busy) login("ms", true); throw new Error("מחדש חיבור למיקרוסופט…") }
+    store.set(p+"_rt", null); throw e;
+  }
+  return store.get(p+"_at");
+}
+async function api(p, base, method, path, body, extraHeaders){
+  const r = await fetch(base+path,{method,headers:{Authorization:"Bearer "+await token(p),"Content-Type":"application/json",...(extraHeaders||{})},
+    body: body ? JSON.stringify(body) : undefined});
+  if(r.status===204 || r.status===202) return {ok:true};
+  const t = await r.text(); let j = {}; try{ j = t?JSON.parse(t):{} }catch(e){}
+  if(!r.ok) throw new Error((j.error && (j.error.message||j.error)) || ("שגיאה "+r.status));
+  return j;
+}
+const sp = (m,path,b)=>api("sp","https://api.spotify.com/v1",m,path,b);
+const gr = (m,path,b,h)=>api("ms","https://graph.microsoft.com/v1.0",m,path,b,h);
+
+/* ---------- Weather (Open-Meteo, no key) ---------- */
+const WMO = {0:["☀️","בהיר"],1:["🌤️","בהיר בעיקר"],2:["⛅","מעונן חלקית"],3:["☁️","מעונן"],45:["🌫️","ערפל"],48:["🌫️","ערפל"],
+  51:["🌦️","טפטוף קל"],53:["🌦️","טפטוף"],55:["🌦️","טפטוף חזק"],61:["🌧️","גשם קל"],63:["🌧️","גשם"],65:["🌧️","גשם חזק"],
+  66:["🌧️","גשם קפוא"],67:["🌧️","גשם קפוא"],71:["🌨️","שלג קל"],73:["🌨️","שלג"],75:["🌨️","שלג כבד"],77:["🌨️","שלג"],
+  80:["🌦️","ממטרים"],81:["🌧️","ממטרים"],82:["⛈️","ממטרים עזים"],95:["⛈️","סופת רעמים"],96:["⛈️","סופת רעמים וברד"],99:["⛈️","סופת רעמים וברד"]};
+const wmo = c => WMO[c] || ["·",""];
+let weather = null;
+async function loadWeather(){
+  try{
+    const q = new URLSearchParams({latitude:LAT,longitude:LON,timezone:TZ,forecast_days:"7",
+      current:"temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code",
+      hourly:"temperature_2m,weather_code,precipitation_probability",
+      daily:"weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"});
+    const r = await fetch("https://api.open-meteo.com/v1/forecast?"+q);
+    if(!r.ok) throw new Error();
+    weather = await r.json();
+    const c = weather.current, [ic,txt] = wmo(c.weather_code);
+    $("wIcon").textContent = ic;
+    $("wTemp").textContent = Math.round(c.temperature_2m)+"°";
+    $("wDesc").innerHTML = esc(txt)+" · מרגיש כמו "+Math.round(c.apparent_temperature)+"°<br>לחות "+c.relative_humidity_2m+"% · רוח "+Math.round(c.wind_speed_10m)+' קמ"ש';
+    const h = weather.hourly, nowIdx = Math.max(0, h.time.findIndex(t=>t >= c.time.slice(0,13)));
+    let hh = "";
+    for(let i=nowIdx; i<nowIdx+12 && i<h.time.length; i+=2)
+      hh += `<div>${h.time[i].slice(11,16)}<b>${wmo(h.weather_code[i])[0]} ${Math.round(h.temperature_2m[i])}°</b><small>${h.precipitation_probability[i]??0}%</small></div>`;
+    $("wHours").innerHTML = hh;
+    const d = weather.daily, lo = Math.min(...d.temperature_2m_min), hi = Math.max(...d.temperature_2m_max), span = Math.max(1,hi-lo);
+    $("wWeek").innerHTML = d.time.map((t,i)=>{
+      const name = i===0 ? "היום" : new Date(t+"T12:00").toLocaleDateString("he-IL",{weekday:"short"});
+      const a = (d.temperature_2m_min[i]-lo)/span*100, b = (d.temperature_2m_max[i]-lo)/span*100;
+      const rain = d.precipitation_probability_max[i];
+      return `<div class="day"><span>${name}</span><span>${wmo(d.weather_code[i])[0]}</span>
+        <span><span class="bar"><i style="right:${a}%;left:${100-b}%"></i></span>${rain>=20?`<span class="rain">גשם ${rain}%</span>`:""}</span>
+        <span>${Math.round(d.temperature_2m_min[i])}°–${Math.round(d.temperature_2m_max[i])}°</span></div>`;
+    }).join("");
+  }catch(e){ $("wDesc").textContent = "לא הצלחתי לטעון מזג אוויר. אנסה שוב בעוד כמה דקות." ; setTimeout(loadWeather, 5*60*1000) }
+}
+
+/* ---------- Calendar (Outlook / Microsoft Graph) ---------- */
+function localNow(){ return new Date().toLocaleString("sv-SE",{timeZone:TZ}).slice(0,16).replace(" ","T") }
+// "YYYY-MM-DDTHH:MM" in Israel time (the tablet's clock) -> UTC "YYYY-MM-DDTHH:MM:SS"
+function toUTC(s){ const t = Date.parse(s.length===16 ? s+":00" : s); if(isNaN(t)) throw new Error("זמן לא תקין: "+s); return new Date(t).toISOString().slice(0,19) }
+async function fetchEvents(days){
+  const start = new Date(); start.setHours(0,0,0,0);
+  const end = new Date(start); end.setDate(end.getDate()+days);
+  const j = await gr("GET","/me/calendarView?"+new URLSearchParams({startDateTime:start.toISOString(),endDateTime:end.toISOString(),
+    $orderby:"start/dateTime",$top:"80",$select:"subject,start,end,location,isAllDay"}),null,{Prefer:`outlook.timezone="${TZ}"`});
+  return j.value.map(e=>({title:e.subject,start:e.start.dateTime.slice(0,16),end:e.end.dateTime.slice(0,16),allDay:e.isAllDay,location:e.location&&e.location.displayName}));
+}
+async function loadCalendar(){
+  if(!store.get("ms_rt")){ $("agenda").innerHTML='<span class="hint">חבר את מיקרוסופט בהגדרות כדי לראות את הלו"ז.</span>'; return }
+  try{
+    const events = await fetchEvents(7), nowStr = localNow(), todayStr = nowStr.slice(0,10);
+    const upcoming = events.filter(e=>e.end > nowStr);
+    if(!upcoming.length){ $("agenda").innerHTML='<span class="hint">אין אירועים בשבוע הקרוב.</span>'; return }
+    let html = "", lastDay = "";
+    for(const e of upcoming.slice(0,12)){
+      const day = e.start.slice(0,10);
+      if(day!==lastDay){
+        const label = day<=todayStr ? "היום" : new Date(day+"T12:00").toLocaleDateString("he-IL",{weekday:"long",day:"numeric",month:"numeric"});
+        html += `<div class="dayhead">${label}</div>`; lastDay = day;
+      }
+      html += `<div class="ev"><time>${e.allDay?"כל היום":e.start.slice(11,16)}</time><div><div class="t">${esc(e.title)}</div>${e.location?`<div class="l">${esc(e.location)}</div>`:""}</div></div>`;
+    }
+    $("agenda").innerHTML = html.replace('<div class="ev">','<div class="ev" style="border-top:0">');
+  }catch(e){ $("agenda").innerHTML = `<span class="hint">${esc(e.message)}</span>` }
+}
+async function addEvent(i){
+  const tz = TZ, start = i.start, allDay = !!i.all_day;
+  let end = i.end;
+  if(!end){
+    const d = new Date(start.length===10 ? start+"T00:00" : start);
+    if(allDay) d.setDate(d.getDate()+1); else d.setMinutes(d.getMinutes()+(i.duration_minutes||60));
+    end = d.toLocaleString("sv-SE").replace(" ","T").slice(0,16);
+  }
+  const fix = s => s.length===10 ? s+"T00:00:00" : (s.length===16 ? s+":00" : s);
+  const when = s => allDay ? {dateTime:fix(s),timeZone:tz} : {dateTime:toUTC(s),timeZone:"UTC"};
+  const ev = await gr("POST","/me/events",{subject:i.title,isAllDay:allDay,
+    start:when(start),end:when(end),
+    location:i.location?{displayName:i.location}:undefined});
+  loadCalendar();
+  return {ok:true,id:ev.id};
+}
+
+/* ---------- Shopping list (Microsoft To Do list "קניות") ---------- */
+const SHOP_NAME = "קניות";
+let shopListId = null, shopItems = [];
+async function shopList(){
+  if(shopListId) return shopListId;
+  const j = await gr("GET","/me/todo/lists");
+  let l = j.value.find(x=>x.displayName===SHOP_NAME);
+  if(!l) l = await gr("POST","/me/todo/lists",{displayName:SHOP_NAME});
+  return shopListId = l.id;
+}
+async function shopFetch(){
+  const id = await shopList();
+  const j = await gr("GET",`/me/todo/lists/${id}/tasks?`+new URLSearchParams({$filter:"status ne 'completed'",$top:"100"}));
+  shopItems = j.value.map(t=>({id:t.id,name:t.title}));
+  return shopItems;
+}
+async function shopAdd(names){
+  const id = await shopList();
+  for(const n of names){ const name = String(n).trim(); if(name) await gr("POST",`/me/todo/lists/${id}/tasks`,{title:name}) }
+}
+async function shopDone(itemId){ const id = await shopList(); await gr("PATCH",`/me/todo/lists/${id}/tasks/${itemId}`,{status:"completed"}) }
+function renderShop(){
+  $("shopCount").textContent = shopItems.length;
+  const ul = $("shop"); ul.innerHTML = "";
+  if(!shopItems.length){ $("shopHint").textContent = "הרשימה ריקה. אמור למשל: \"תוסיף חלב, לחם וביצים\"."; return }
+  $("shopHint").textContent = "מסתנכרן עם הרשימה \"קניות\" באפליקציית Microsoft To Do בטלפון.";
+  for(const it of shopItems){
+    const li = document.createElement("li");
+    const b = document.createElement("button"); b.className = "chk"; b.setAttribute("aria-label","סמן כנקנה: "+it.name);
+    b.onclick = async ()=>{ b.textContent = "✓"; try{ await shopDone(it.id); await loadShop() }catch(e){ say(e.message,"err") } };
+    const s = document.createElement("span"); s.textContent = it.name;
+    li.append(b,s); ul.appendChild(li);
+  }
+}
+async function loadShop(){
+  if(!store.get("ms_rt")){ $("shopHint").textContent = "חבר את מיקרוסופט בהגדרות כדי שהרשימה תישמר ותגיע לטלפון."; return }
+  try{ await shopFetch(); renderShop() }catch(e){ $("shopHint").textContent = e.message }
+}
+$("shopForm").onsubmit = async e=>{
+  e.preventDefault(); const t = $("shopTxt").value.trim(); if(!t) return;
+  $("shopTxt").value = "";
+  try{ await shopAdd(t.split(/[,،]/)); await loadShop() }catch(err){ say(err.message,"err") }
+};
+
+/* ---------- Timers (kept across reloads) ---------- */
+let timers = [], audioCtx = null;
+try{ timers = JSON.parse(store.get("timers")||"[]") }catch(e){ timers = [] }
+function beep(){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.frequency.value = 880; o.connect(g); g.connect(audioCtx.destination);
+    g.gain.setValueAtTime(.0001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(.4, audioCtx.currentTime+.02);
+    g.gain.exponentialRampToValueAtTime(.0001, audioCtx.currentTime+.5);
+    o.start(); o.stop(audioCtx.currentTime+.55);
+  }catch(e){}
+}
+function fmt(ms){ const s = Math.max(0,Math.ceil(ms/1000)), h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+  return (h?h+":"+String(m).padStart(2,"0"):m)+":"+String(x).padStart(2,"0") }
+function renderTimers(){
+  store.set("timers", timers.length ? JSON.stringify(timers) : null);
+  const box = $("timers"); box.innerHTML = "";
+  for(const t of timers){
+    const d = document.createElement("div"); d.className = "timer"+(t.ringing?" ring":"");
+    d.innerHTML = `<span class="tm">${t.ringing?"0:00":fmt(t.end-Date.now())}</span><span class="tl"></span><button aria-label="${t.ringing?"עצור":"בטל"}">${t.ringing?"■":"✕"}</button>`;
+    d.querySelector(".tl").textContent = t.label || "טיימר";
+    d.querySelector("button").onclick = ()=>{ timers = timers.filter(x=>x!==t); renderTimers() };
+    box.appendChild(d);
+  }
+}
+setInterval(()=>{
+  const now = Date.now();
+  let ringNow = false;
+  for(const t of timers){
+    if(!t.ringing && now >= t.end){ t.ringing = true; t.rangAt = now; speak((t.label?t.label+": ":"")+"הטיימר הסתיים") }
+    if(t.ringing && now - (t.rangAt||t.end) < 3*60*1000) ringNow = true;
+  }
+  for(const r of reminders){
+    if(r.at <= now && !ringingIds.has(r.id) && !wasAnnounced(r.id) && now - r.at < 6*3600*1000){
+      ringingIds.set(r.id, now); markAnnounced(r.id); speak("תזכורת: "+r.text); renderRems();
+    }
+  }
+  for(const [, at] of ringingIds) if(now - at < 2*60*1000) ringNow = true;
+  if(ringNow && Math.floor(now/1000)%2===0) beep();
+  if(timers.length) renderTimers();
+}, 1000);
+
+/* ---------- Reminders: Microsoft To Do list "תזכורות" (the phone gets a notification too); tablet-only if Microsoft isn't connected ---------- */
+const REM_NAME = "תזכורות";
+let remListId = null, reminders = [];
+const ringingIds = new Map();
+function localRems(){ try{ return JSON.parse(store.get("rems")||"[]") }catch(e){ return [] } }
+function saveLocalRems(a){ store.set("rems", a.length ? JSON.stringify(a) : null) }
+function announcedList(){ try{ return JSON.parse(store.get("rem_done")||"[]") }catch(e){ return [] } }
+function wasAnnounced(id){ return announcedList().includes(id) }
+function markAnnounced(id){ const a = announcedList(); a.push(id); store.set("rem_done", JSON.stringify(a.slice(-200))) }
+function graphTime(dt){ if(!dt || !dt.dateTime) return null; const s = dt.dateTime.slice(0,19); return /^utc$/i.test(dt.timeZone||"") ? Date.parse(s+"Z") : Date.parse(s) }
+async function remList(){
+  if(remListId) return remListId;
+  const j = await gr("GET","/me/todo/lists");
+  let l = j.value.find(x=>x.displayName===REM_NAME);
+  if(!l) l = await gr("POST","/me/todo/lists",{displayName:REM_NAME});
+  return remListId = l.id;
+}
+async function loadReminders(){
+  let list = localRems().map(r=>({...r,src:"local"}));
+  if(store.get("ms_rt")){
+    try{
+      const id = await remList();
+      const j = await gr("GET",`/me/todo/lists/${id}/tasks?`+new URLSearchParams({$filter:"status ne 'completed'",$top:"100"}));
+      list = list.concat(j.value.filter(t=>t.reminderDateTime).map(t=>({id:t.id,text:t.title,at:graphTime(t.reminderDateTime),src:"todo"})));
+    }catch(e){}
+  }
+  reminders = list.filter(r=>r.at && !isNaN(r.at)).sort((a,b)=>a.at-b.at);
+  renderRems();
+}
+async function addReminder(text, when){
+  const utc = toUTC(when), at = Date.parse(utc+"Z");
+  if(store.get("ms_rt")){
+    const id = await remList();
+    await gr("POST",`/me/todo/lists/${id}/tasks`,{title:text,isReminderOn:true,reminderDateTime:{dateTime:utc,timeZone:"UTC"}});
+  } else { const a = localRems(); a.push({id:"l"+Date.now(),text,at}); saveLocalRems(a) }
+  await loadReminders();
+  return {ok:true, time:new Date(at).toLocaleString("he-IL",{timeZone:TZ}), phone_notification:!!store.get("ms_rt")};
+}
+async function finishReminder(r){
+  ringingIds.delete(r.id);
+  try{
+    if(r.src==="todo"){ const id = await remList(); await gr("PATCH",`/me/todo/lists/${id}/tasks/${r.id}`,{status:"completed"}) }
+    else saveLocalRems(localRems().filter(x=>x.id!==r.id));
+  }catch(e){ say(e.message,"err") }
+  reminders = reminders.filter(x=>x.id!==r.id); renderRems();
+}
+function renderRems(){
+  const box = $("rems"); box.innerHTML = "";
+  const now = Date.now();
+  const show = reminders.filter(r=>ringingIds.has(r.id) || (r.at > now && r.at - now < 24*3600*1000)).slice(0,4);
+  for(const r of show){
+    const ring = ringingIds.has(r.id);
+    const d = document.createElement("div"); d.className = "timer rem"+(ring?" ring":"");
+    const when = new Date(r.at), today = when.toDateString()===new Date().toDateString();
+    d.innerHTML = `<span class="tm"></span><span class="tl"></span><button aria-label="${ring?"בוצע":"בטל תזכורת"}">${ring?"✓":"✕"}</button>`;
+    d.querySelector(".tm").textContent = (today?"":"מחר ")+when.toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit",timeZone:TZ});
+    d.querySelector(".tl").textContent = r.text;
+    d.querySelector("button").onclick = ()=>finishReminder(r);
+    box.appendChild(d);
+  }
+}
+document.addEventListener("pointerdown", ()=>{ if(audioCtx && audioCtx.state==="suspended") audioCtx.resume() });
+
+/* ---------- Spotify ---------- */
+const music = {
+  async list_speakers(){
+    const j = await sp("GET","/me/player/devices");
+    return j.devices.map(d=>({id:d.id,name:d.name,type:d.type,active:d.is_active,volume:d.volume_percent}));
+  },
+  async now_playing(){
+    const j = await sp("GET","/me/player");
+    if(!j || !j.item) return {playing:false};
+    return {playing:j.is_playing,track:j.item.name,artist:(j.item.artists||[]).map(a=>a.name).join(", "),speaker:j.device&&j.device.name,volume:j.device&&j.device.volume_percent};
+  },
+  async search(i){
+    const j = await sp("GET","/search?"+new URLSearchParams({q:i.query,type:i.type||"track,playlist,album,artist",limit:"5",market:"from_token"}));
+    const out = [];
+    for(const k of ["tracks","playlists","albums","artists"]) if(j[k]) for(const x of j[k].items) if(x)
+      out.push({kind:k.slice(0,-1),name:x.name,uri:x.uri,by:(x.artists||[]).map(a=>a.name).join(", ")||(x.owner&&x.owner.display_name)||""});
+    return out;
+  },
+  async play(i){
+    const body = {};
+    if(i.uris) body.uris = i.uris;
+    if(i.context_uri) body.context_uri = i.context_uri;
+    await sp("PUT","/me/player/play"+(i.speaker_id?"?device_id="+encodeURIComponent(i.speaker_id):""), Object.keys(body).length?body:undefined);
+    return {ok:true};
+  },
+  async pause(){ await sp("PUT","/me/player/pause"); return {ok:true} },
+  async next(){ await sp("POST","/me/player/next"); return {ok:true} },
+  async previous(){ await sp("POST","/me/player/previous"); return {ok:true} },
+  async set_volume(i){ await sp("PUT","/me/player/volume?volume_percent="+Math.max(0,Math.min(100,Math.round(i.percent)))); return {ok:true} },
+  async move_to_speaker(i){ await sp("PUT","/me/player",{device_ids:[i.speaker_id],play:true}); return {ok:true} },
+  async shuffle(i){ await sp("PUT","/me/player/shuffle?state="+(i.on?"true":"false")); return {ok:true} }
+};
+async function loadMusic(){
+  if(!store.get("sp_rt")){ $("devs").innerHTML='<span class="hint">חבר את ספוטיפיי בהגדרות.</span>'; return }
+  try{
+    const [devs, p] = await Promise.all([music.list_speakers(), sp("GET","/me/player")]);
+    const box = $("devs"); box.innerHTML = "";
+    if(!devs.length) box.innerHTML = '<span class="hint">אין רמקולים זמינים. תגיד לאקו "Alexa, play Spotify" פעם אחת והוא יופיע.</span>';
+    devs.forEach(d=>{
+      const b = document.createElement("button");
+      b.className = "dev"+(d.active?" active":""); b.textContent = d.name;
+      b.onclick = ()=>music.move_to_speaker({speaker_id:d.id}).then(loadMusic).catch(e=>say(e.message,"err"));
+      box.appendChild(b);
+    });
+    if(p && p.item){
+      $("tt").textContent = p.item.name;
+      $("ar").textContent = (p.item.artists||[]).map(a=>a.name).join(", ");
+      $("where").textContent = p.device ? (p.is_playing?"מתנגן ב":"מושהה ב")+p.device.name : "";
+      const img = p.item.album && p.item.album.images && p.item.album.images[0];
+      if(img) $("art").src = img.url;
+      if(p.device && document.activeElement!==$("vol")) $("vol").value = p.device.volume_percent;
+      $("bPlay").dataset.playing = p.is_playing ? "1" : "";
+    } else { $("tt").textContent = "שום דבר לא מתנגן"; $("ar").textContent = ""; $("where").textContent = "" }
+  }catch(e){ $("devs").innerHTML = `<span class="hint">${esc(e.message)}</span>` }
+}
+const later = f => ()=>f().then(()=>setTimeout(loadMusic,600)).catch(e=>say(e.message,"err"));
+$("bPlay").onclick = later(()=>$("bPlay").dataset.playing?music.pause():music.play({}));
+$("bNext").onclick = later(()=>music.next());
+$("bPrev").onclick = later(()=>music.previous());
+$("vol").onchange = e=>music.set_volume({percent:+e.target.value}).catch(err=>say(err.message,"err"));
+
+/* ---------- Claude ---------- */
+const actions = {
+  ...music,
+  async get_weather(){
+    if(!weather) await loadWeather();
+    if(!weather) return {error:"weather unavailable"};
+    const d = weather.daily;
+    return {now:{temp:weather.current.temperature_2m,feels:weather.current.apparent_temperature,desc:wmo(weather.current.weather_code)[1]},
+      days:d.time.map((t,i)=>({date:t,min:d.temperature_2m_min[i],max:d.temperature_2m_max[i],rain_chance:d.precipitation_probability_max[i],desc:wmo(d.weather_code[i])[1]}))};
+  },
+  async get_calendar(i){ return await fetchEvents(Math.min(31, Math.max(1, i.days||7))) },
+  async add_calendar_event(i){ return await addEvent(i) },
+  async shopping_list(){ return (await shopFetch()).map(x=>x.name) },
+  async shopping_add(i){ await shopAdd(i.items||[]); await loadShop(); return {ok:true, list:shopItems.map(x=>x.name)} },
+  async shopping_remove(i){
+    await shopFetch();
+    const removed = [];
+    for(const w of (i.items||[]).map(s=>s.trim())){
+      const it = shopItems.find(x=>x.name===w) || shopItems.find(x=>x.name.includes(w)||w.includes(x.name));
+      if(it){ await shopDone(it.id); removed.push(it.name); shopItems = shopItems.filter(x=>x!==it) }
+    }
+    await loadShop(); return {removed, list:shopItems.map(x=>x.name)};
+  },
+  async shopping_clear(){ await shopFetch(); for(const it of shopItems) await shopDone(it.id); await loadShop(); return {ok:true} },
+  async set_timer(i){
+    const ms = Math.round(((i.minutes||0)*60 + (i.seconds||0))*1000);
+    if(ms<=0) return {error:"duration must be positive"};
+    timers.push({end:Date.now()+ms,label:i.label||"",ringing:false}); renderTimers();
+    return {ok:true,active:timers.length};
+  },
+  async set_reminder(i){ return await addReminder(i.text, i.when) },
+  async list_reminders(){ await loadReminders(); return reminders.map(r=>({text:r.text,time:new Date(r.at).toLocaleString("he-IL",{timeZone:TZ})})) },
+  async cancel_reminder(i){
+    await loadReminders();
+    const w = (i.text||"").trim();
+    const r = reminders.find(x=>x.text===w) || reminders.find(x=>w && (x.text.includes(w)||w.includes(x.text)));
+    if(!r) return {error:"not found", reminders:reminders.map(x=>x.text)};
+    await finishReminder(r); return {cancelled:r.text};
+  },
+  async list_timers(){ return timers.map(t=>({label:t.label,remaining_seconds:Math.max(0,Math.round((t.end-Date.now())/1000)),ringing:t.ringing})) },
+  async cancel_timer(i){
+    const before = timers.length;
+    timers = i.label ? timers.filter(t=>!(t.label && (t.label.includes(i.label)||i.label.includes(t.label)))) : [];
+    renderTimers(); return {cancelled:before-timers.length};
+  }
+};
+const NOARGS = {type:"object",properties:{}};
+const TOOLS = [
+  {name:"list_speakers",description:"List Spotify Connect speakers (Echo devices etc.) with ids.",input_schema:NOARGS},
+  {name:"now_playing",description:"What is playing now, on which speaker, volume.",input_schema:NOARGS},
+  {name:"search",description:"Search Spotify; returns items with uri.",input_schema:{type:"object",properties:{query:{type:"string"},type:{type:"string",description:"comma list of track,playlist,album,artist"}},required:["query"]}},
+  {name:"play",description:"Play uris (track list) OR context_uri (playlist/album/artist). Omit both to resume. speaker_id optional.",input_schema:{type:"object",properties:{uris:{type:"array",items:{type:"string"}},context_uri:{type:"string"},speaker_id:{type:"string"}}}},
+  {name:"pause",description:"Pause music.",input_schema:NOARGS},
+  {name:"next",description:"Next track.",input_schema:NOARGS},
+  {name:"previous",description:"Previous track.",input_schema:NOARGS},
+  {name:"set_volume",description:"Set volume 0-100.",input_schema:{type:"object",properties:{percent:{type:"number"}},required:["percent"]}},
+  {name:"move_to_speaker",description:"Move playback to another speaker.",input_schema:{type:"object",properties:{speaker_id:{type:"string"}},required:["speaker_id"]}},
+  {name:"shuffle",description:"Shuffle on/off.",input_schema:{type:"object",properties:{on:{type:"boolean"}},required:["on"]}},
+  {name:"get_weather",description:"Current weather and 7-day forecast for Rishon LeZion.",input_schema:NOARGS},
+  {name:"get_calendar",description:"The user's Outlook events from today for N days (Israel local time).",input_schema:{type:"object",properties:{days:{type:"number"}}}},
+  {name:"add_calendar_event",description:"Create an Outlook calendar event. Times are Israel local time, format YYYY-MM-DDTHH:MM (or YYYY-MM-DD with all_day). Default duration 60 minutes.",input_schema:{type:"object",properties:{title:{type:"string"},start:{type:"string"},end:{type:"string"},duration_minutes:{type:"number"},all_day:{type:"boolean"},location:{type:"string"}},required:["title","start"]}},
+  {name:"shopping_list",description:"Read the shared shopping list.",input_schema:NOARGS},
+  {name:"shopping_add",description:"Add items to the shopping list. One item per entry, in Hebrew as said, with quantity if given (e.g. '2 חלב').",input_schema:{type:"object",properties:{items:{type:"array",items:{type:"string"}}},required:["items"]}},
+  {name:"shopping_remove",description:"Remove/check off items from the shopping list.",input_schema:{type:"object",properties:{items:{type:"array",items:{type:"string"}}},required:["items"]}},
+  {name:"shopping_clear",description:"Clear the whole shopping list. Only when explicitly asked.",input_schema:NOARGS},
+  {name:"set_timer",description:"Start a countdown timer on the tablet. It rings and announces when done.",input_schema:{type:"object",properties:{minutes:{type:"number"},seconds:{type:"number"},label:{type:"string",description:"short Hebrew label, e.g. פסטה"}}}},
+  {name:"list_timers",description:"List running timers and remaining time.",input_schema:NOARGS},
+  {name:"set_reminder",description:"Set a reminder for a specific time. The tablet rings and says it aloud at that time; if Microsoft is connected the phone also gets a To Do notification. 'when' is Israel local time YYYY-MM-DDTHH:MM; compute relative times ('בעוד 20 דקות', 'מחר בבוקר' = 08:00) from now.",input_schema:{type:"object",properties:{text:{type:"string",description:"short Hebrew reminder text, e.g. להוציא את הזבל"},when:{type:"string"}},required:["text","when"]}},
+  {name:"list_reminders",description:"List upcoming reminders.",input_schema:NOARGS},
+  {name:"cancel_reminder",description:"Cancel a reminder by its text.",input_schema:{type:"object",properties:{text:{type:"string"}},required:["text"]}},
+  {name:"cancel_timer",description:"Cancel a timer by label, or all timers if no label.",input_schema:{type:"object",properties:{label:{type:"string"}}}}
+];
+function system(){
+  const now = new Date().toLocaleString("he-IL",{timeZone:TZ,dateStyle:"full",timeStyle:"short"});
+  return `You are the home assistant on a wall tablet in a family home in Rishon LeZion, Israel. Now: ${now} (ISO local: ${localNow()}).
+The user speaks Hebrew via speech-to-text, which may contain errors; interpret generously.
+You can: play Spotify on their Amazon Echo speakers (match Hebrew room names like סלון/מטבח/חדר שינה to speakers via list_speakers; for vague requests search a fitting playlist and play it), read the weather, read and add Outlook calendar events, manage the shared shopping list, run kitchen timers, and set reminders.
+Use a timer for a countdown ("טיימר 10 דקות"); use a reminder for something to remember at a time ("תזכיר לי ב-8 ל...", "תזכיר לי בעוד שעה...").
+Requests may start with the wake phrase "היי בית"; ignore it.
+Act first with tools, then reply in one or two short spoken Hebrew sentences. No markdown, no emoji, no lists. Say times the way Israelis say them.
+When adding an event, resolve relative days ("ביום שלישי", "מחר") from the current date; if the time is unclear, ask briefly instead of guessing.
+If a tool says a service is not connected, tell the user to open הגדרות. If a speaker is missing, tell them to say "Alexa, play Spotify" to that Echo once.`;
+}
+let chat = [], busy = false;
+async function ask(text){
+  const key = store.get("akey");
+  if(!key){ say("צריך לחבר את Claude בהגדרות","err"); openSetup(); return }
+  if(busy) return;
+  lastTouch = Date.now();
+  busy = true; say(text,"me"); status("חושב…");
+  if(rec){ try{ rec.abort() }catch(e){} }
+  chat.push({role:"user",content:text});
+  chat = chat.slice(-14);
+  while(chat.length && (chat[0].role!=="user" || typeof chat[0].content!=="string")) chat.shift();
+  try{
+    for(let step=0; step<8; step++){
+      const r = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
+        "content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:MODEL,max_tokens:700,system:system(),tools:TOOLS,messages:chat})});
+      const j = await r.json();
+      if(!r.ok){
+        if(r.status===401) throw new Error("מפתח Claude לא תקין. בדוק אותו בהגדרות.");
+        if(r.status===400 && /credit/i.test(JSON.stringify(j))) throw new Error("נגמר הקרדיט ב-Claude. הטען ב-console.anthropic.com.");
+        throw new Error((j.error&&j.error.message)||"שגיאה מ-Claude");
+      }
+      chat.push({role:"assistant",content:j.content});
+      const uses = j.content.filter(c=>c.type==="tool_use");
+      if(!uses.length){
+        const reply = j.content.filter(c=>c.type==="text").map(c=>c.text).join(" ").trim();
+        if(reply){ say(reply,"ai"); speak(reply) }
+        break;
+      }
+      const results = [];
+      for(const u of uses){
+        let out;
+        try{ out = await actions[u.name](u.input||{}) }catch(e){ out = {error:e.message} }
+        results.push({type:"tool_result",tool_use_id:u.id,content:JSON.stringify(out).slice(0,6000)});
+      }
+      chat.push({role:"user",content:results});
+    }
+  }catch(e){ say(e.message,"err"); chat = [] }
+  busy = false; status(""); setTimeout(loadMusic,800); resumeListening();
+}
+let speaking = false, speakGuard = null, speakSeq = 0;
+function speak(t){
+  try{
+    if(rec){ try{ rec.abort() }catch(e){} }   // don't let the tablet hear itself
+    const u = new SpeechSynthesisUtterance(t); u.lang = "he-IL";
+    const v = speechSynthesis.getVoices().find(v=>v.lang && v.lang.toLowerCase().startsWith("he")); if(v) u.voice = v;
+    const id = ++speakSeq;
+    const done = ()=>{ if(id!==speakSeq) return; speaking = false; clearTimeout(speakGuard); resumeListening() };
+    u.onend = done; u.onerror = done;
+    speaking = true; clearTimeout(speakGuard); speakGuard = setTimeout(done, 30000);
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  }catch(e){ speaking = false }
+}
+
+/* ---------- voice input: tap the mic, or always-listening with the wake phrase "היי בית" ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const HINT = $("hint").textContent;
+const WAKE = /(?:^|\s)(?:היי|הי|hey|hi)[\s,]*(?:ה?בית|קלוד|claude)(?=$|[\s,.!?])/i;
+let rec = null, armedUntil = 0, wakeOn = store.get("wake")==="1", restartDelay = 400, armTimer = null;
+function chime(){ beep(); setTimeout(beep, 180) }
+function arm(){
+  armedUntil = Date.now()+8000;
+  $("mic").classList.add("on"); $("hint").textContent = "מקשיב…";
+  clearTimeout(armTimer); armTimer = setTimeout(()=>{ if(armedUntil) disarm() }, 8200);
+}
+function disarm(){ armedUntil = 0; clearTimeout(armTimer); $("mic").classList.remove("on"); $("hint").textContent = HINT }
+function heard(t){
+  t = t.trim(); if(!t) return;
+  if(armedUntil && Date.now() < armedUntil){ disarm(); ask(t.replace(WAKE," ").trim() || t); return }
+  if(!wakeOn) return;
+  const m = t.match(WAKE);
+  if(!m) return;
+  const cmd = t.slice(m.index + m[0].length).replace(/^[\s,.]+/,"").trim();
+  if(cmd.split(/\s+/).length >= 2) ask(cmd);
+  else { chime(); arm() }
+}
+function startRec(){
+  if(!SR || rec || busy || speaking || document.hidden) return;
+  if(!wakeOn && !armedUntil) return;
+  const r = new SR(); r.lang = "he-IL"; r.interimResults = true; r.continuous = wakeOn;
+  r.onresult = e=>{
+    for(let i=e.resultIndex; i<e.results.length; i++){
+      const res = e.results[i], t = res[0].transcript;
+      if(armedUntil) $("hint").textContent = t;
+      if(res.isFinal) heard(t);
+    }
+  };
+  r.onerror = e=>{
+    if(e.error==="not-allowed" || e.error==="service-not-allowed"){
+      say("צריך לאשר גישה למיקרופון: לחץ על המנעול ליד הכתובת ← הרשאות ← מיקרופון.","err"); setWake(false); disarm();
+    } else if(e.error==="network"){ restartDelay = Math.min(restartDelay*2, 30000) }
+    else if(e.error!=="no-speech" && e.error!=="aborted" && armedUntil){ say("שגיאת מיקרופון: "+e.error,"err") }
+  };
+  r.onend = ()=>{
+    if(rec===r) rec = null;
+    if(!wakeOn){ if(armedUntil) disarm(); return }
+    setTimeout(startRec, restartDelay);
+  };
+  rec = r;
+  try{ r.start(); setTimeout(()=>{ if(rec===r) restartDelay = 400 }, 5000) }catch(e){ rec = null }
+}
+function resumeListening(){ if(wakeOn && !rec) setTimeout(startRec, 400) }
+function setWake(on){
+  wakeOn = on; store.set("wake", on ? "1" : null);
+  $("wakeBtn").classList.toggle("on", on); $("wakeBtn").setAttribute("aria-pressed", on);
+  $("wakeBtn").textContent = on ? "האזנה רציפה: פועלת" : "האזנה רציפה: כבויה";
+  $("wakeHint").textContent = on ? "אמור \"היי בית\" ואחריו בקשה" : "";
+  if(on) startRec(); else if(rec){ try{ rec.abort() }catch(e){} }
+}
+$("wakeBtn").onclick = ()=>{
+  if(!SR){ say("האזנה רציפה עובדת רק ב-Chrome.","err"); return }
+  setWake(!wakeOn);
+};
+$("mic").onclick = ()=>{
+  if(!SR){ say("זיהוי דיבור לא זמין כאן. פתח ב-Chrome, או לחץ על שורת ההקלדה והשתמש במיקרופון של המקלדת.","err"); $("txt").focus(); return }
+  if(armedUntil){ disarm(); if(!wakeOn && rec){ try{ rec.abort() }catch(e){} } return }
+  try{ speechSynthesis.cancel() }catch(e){}
+  speaking = false;
+  arm();
+  if(!rec) startRec();
+};
+setWake(wakeOn);
+$("typeForm").onsubmit = e=>{ e.preventDefault(); const t=$("txt").value.trim(); if(t){ $("txt").value=""; ask(t) } };
+
+/* ---------- setup wizard ---------- */
+function badge(el, done, label){ el.className = "badge "+(done?"done":"todo"); el.textContent = done ? "מחובר ✓" : label }
+function refreshSetup(){
+  badge($("stClaude"), !!store.get("akey"), "להגדרה");
+  badge($("stSpotify"), !!store.get("sp_rt"), "להגדרה");
+  badge($("stMs"), !!store.get("ms_rt"), "להגדרה");
+}
+function allConnected(){ return store.get("akey") && store.get("sp_rt") && store.get("ms_rt") }
+function saveFields(){
+  store.set("akey",$("akey").value.trim()||null);
+  store.set("cid",$("cid").value.trim()||null);
+  store.set("mcid",$("mcid").value.trim()||null);
+  refreshSetup();
+}
+function openSetup(){
+  $("akey").value = store.get("akey")||""; $("cid").value = store.get("cid")||""; $("mcid").value = store.get("mcid")||"";
+  refreshSetup(); if(!$("setup").open) $("setup").showModal();
+}
+["akey","cid","mcid"].forEach(id=>$(id).addEventListener("change", saveFields));
+$("openSetup").onclick = openSetup;
+$("closeSetup").onclick = ()=>{ saveFields(); $("setup").close(); bootData() };
+$("loginSp").onclick = ()=>{ saveFields(); if(!store.get("cid")){ $("cid").focus(); return } login("sp") };
+$("loginMs").onclick = ()=>{ saveFields(); if(!store.get("mcid")){ $("mcid").focus(); return } login("ms") };
+
+/* ---------- Photos (picked from Google Photos via Android's picker, saved on the tablet) & night screen ---------- */
+let dbp = null, photoIds = [], photoQueue = [], curLayer = 0, layerUrl = [null,null], forcePhotos = false, screenMode = "app";
+function idb(){
+  return dbp || (dbp = new Promise((res,rej)=>{
+    const r = indexedDB.open("home-hub",1);
+    r.onupgradeneeded = ()=>r.result.createObjectStore("photos",{keyPath:"id",autoIncrement:true});
+    r.onsuccess = ()=>res(r.result); r.onerror = ()=>rej(r.error);
+  }));
+}
+function reqP(r){ return new Promise((res,rej)=>{ r.onsuccess = ()=>res(r.result); r.onerror = ()=>rej(r.error) }) }
+async function photoStore(mode){ return (await idb()).transaction("photos",mode).objectStore("photos") }
+async function refreshPhotoIds(){
+  try{ photoIds = await reqP((await photoStore("readonly")).getAllKeys()) }catch(e){ photoIds = [] }
+  photoQueue = [];
+  $("photoCount").textContent = photoIds.length ? photoIds.length+" תמונות שמורות" : "אין תמונות עדיין";
+}
+async function shrink(file){
+  const bmp = await createImageBitmap(file);
+  const k = Math.min(1, 1920/Math.max(bmp.width,bmp.height));
+  const c = document.createElement("canvas"); c.width = Math.round(bmp.width*k); c.height = Math.round(bmp.height*k);
+  c.getContext("2d").drawImage(bmp,0,0,c.width,c.height); if(bmp.close) bmp.close();
+  return await new Promise(r=>c.toBlob(r,"image/jpeg",.85));
+}
+$("photoIn").onchange = async e=>{
+  const files = [...e.target.files]; e.target.value = "";
+  let n = 0;
+  for(const f of files){
+    try{ const b = await shrink(f); if(b){ await reqP((await photoStore("readwrite")).add({blob:b,added:Date.now()})); n++ } }catch(err){}
+    $("photoCount").textContent = `שומר… ${n}/${files.length}`;
+  }
+  await refreshPhotoIds();
+  say(n ? `נשמרו ${n} תמונות` : "לא הצלחתי לשמור את התמונות. נסה לבחור שוב.", n?"ai":"err");
+};
+let clearArm = 0;
+$("photoClear").onclick = async ()=>{
+  if(Date.now()-clearArm > 4000){ clearArm = Date.now(); $("photoClear").textContent = "לחץ שוב כדי למחוק"; setTimeout(()=>$("photoClear").textContent = "מחק את כל התמונות", 4000); return }
+  clearArm = 0; try{ await reqP((await photoStore("readwrite")).clear()) }catch(e){}
+  $("photoClear").textContent = "מחק את כל התמונות"; await refreshPhotoIds();
+};
+async function nextPhoto(){
+  if(!photoIds.length) return;
+  if(!photoQueue.length) photoQueue = photoIds.slice().sort(()=>Math.random()-.5);
+  const id = photoQueue.pop();
+  let item; try{ item = await reqP((await photoStore("readonly")).get(id)) }catch(e){ return }
+  if(!item || screenMode!=="photos") return;
+  const nxt = 1-curLayer, L = $(nxt ? "phB" : "phA"), url = URL.createObjectURL(item.blob);
+  const fg = L.querySelector(".fg");
+  await new Promise(r=>{ fg.onload = r; fg.onerror = r; fg.src = url });
+  L.querySelector(".bg").src = url;
+  if(layerUrl[nxt]) URL.revokeObjectURL(layerUrl[nxt]);
+  layerUrl[nxt] = url;
+  L.classList.add("show"); $(curLayer ? "phB" : "phA").classList.remove("show");
+  curLayer = nxt;
+}
+function minutes(s){ const [h,m] = String(s).split(":").map(Number); return (h||0)*60+(m||0) }
+function isNight(){
+  if(store.get("night_on")==="0") return false;
+  const from = minutes(store.get("night_from")||"23:00"), to = minutes(store.get("night_to")||"06:30");
+  const d = new Date(), now = d.getHours()*60+d.getMinutes();
+  return from < to ? (now>=from && now<to) : (now>=from || now<to);
+}
+function wantedMode(){
+  const idle = Date.now()-lastTouch;
+  if(timers.some(t=>t.ringing) || ringingIds.size || busy || armedUntil || $("setup").open) return "app";
+  if(isNight() && idle > 60000) return "night";
+  if(photoIds.length && (forcePhotos || idle > (+(store.get("idle_min")||2))*60000)) return "photos";
+  return "app";
+}
+function placeClock(){
+  const c = $("scClock");
+  if(screenMode==="night"){ c.style.top = (20+Math.random()*60)+"%"; c.style.right = (25+Math.random()*50)+"%"; c.style.bottom = "auto" }
+  else { c.style.top = c.style.right = c.style.bottom = "" }
+}
+function setMode(m){
+  if(m===screenMode) return;
+  screenMode = m;
+  $("screen").hidden = m==="app";
+  $("screen").classList.toggle("night", m==="night");
+  if(m!=="photos") forcePhotos = false;
+  placeClock();
+  if(m==="photos") nextPhoto();
+}
+$("screen").addEventListener("pointerdown", e=>{ e.preventDefault(); forcePhotos = false; lastTouch = Date.now(); setMode("app") });
+$("showPhotos").onclick = ()=>{ if(!photoIds.length){ openSetup(); return } forcePhotos = true; setMode("photos") };
+setInterval(()=>setMode(wantedMode()), 2000);
+setInterval(()=>{ if(screenMode==="photos") nextPhoto() }, 15000);
+setInterval(()=>{ if(screenMode==="night") placeClock() }, 60000);
+function loadScreenSettings(){
+  $("idleMin").value = store.get("idle_min")||"2";
+  $("nightOn").checked = store.get("night_on")!=="0";
+  $("nightFrom").value = store.get("night_from")||"23:00";
+  $("nightTo").value = store.get("night_to")||"06:30";
+}
+$("idleMin").onchange = e=>store.set("idle_min", e.target.value);
+$("nightOn").onchange = e=>store.set("night_on", e.target.checked ? null : "0");
+$("nightFrom").onchange = e=>{ if(e.target.value) store.set("night_from", e.target.value) };
+$("nightTo").onchange = e=>{ if(e.target.value) store.set("night_to", e.target.value) };
+loadScreenSettings(); refreshPhotoIds();
+
+/* ---------- boot ---------- */
+function bootData(){ loadWeather(); loadCalendar(); loadShop(); loadMusic(); loadReminders() }
+(async ()=>{
+  await handleRedirect();
+  if(!store.get("akey") && !store.get("sp_rt") && !store.get("ms_rt")) openSetup();
+  bootData();
+  checkUpdate();
+  setInterval(loadMusic, 15000);
+  setInterval(()=>{ loadCalendar(); loadShop() }, 5*60*1000);
+  setInterval(loadReminders, 2*60*1000);
+  renderTimers();
+  setInterval(loadWeather, 30*60*1000);
+})();
+</script>
+</body>
+</html>
