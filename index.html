@@ -318,7 +318,7 @@ dialog a{color:var(--sky)}
 </div>
 
 <script>
-const APP_VERSION = "2.2.0";
+const APP_VERSION = "2.3.0";
 const $ = id => document.getElementById(id);
 const store = {
   get(k){ try{return localStorage.getItem(k)}catch(e){return null} },
@@ -684,10 +684,69 @@ function renderRems(){
 document.addEventListener("pointerdown", ()=>{ if(audioCtx && audioCtx.state==="suspended") audioCtx.resume() });
 
 /* ---------- Spotify ---------- */
+// Hebrew room words -> words that commonly appear in Echo device names
+const ROOMS = [["סלון","living","lounge","family","סלון"],["מטבח","kitchen","מטבח"],["שינה","bedroom","master","שינה"],
+  ["ילדים","kid","child","ילדים","ילד"],["משרד","office","study","work","משרד"],["טאבלט","tab","galaxy","sm-x","טאבלט"],["מרפסת","balcony","patio","מרפסת"]];
+function matchSpeaker(devs, name){
+  if(!name) return null;
+  const n = name.toLowerCase().replace(/^(ה|ב|ל)(?=[א-ת]{3})/,"").trim();
+  const lc = d => d.name.toLowerCase();
+  let d = devs.find(x=>lc(x)===n) || devs.find(x=>lc(x).includes(n) || n.includes(lc(x)));
+  if(d) return d;
+  for(const words of ROOMS){
+    if(words.some(w=>n.includes(w))){ d = devs.find(x=>words.some(w=>lc(x).includes(w))); if(d) return d }
+  }
+  return null;
+}
+function friendly(e){
+  const m = String(e && e.message || e);
+  if(/no active device|NO_ACTIVE_DEVICE/i.test(m)) return "no active speaker. Use play_music with a speaker, or tell the user to say 'Alexa, play Spotify' to the Echo once.";
+  if(/device not found|not found/i.test(m)) return "speaker not reachable. Tell the user to say 'Alexa, play Spotify' to that Echo once so it reappears.";
+  if(/restrict|VOLUME_CONTROL|disallow/i.test(m)) return "this speaker does not allow this control from Spotify (Echo devices often block remote volume). Tell the user to say 'Alexa, volume five' to the Echo instead.";
+  if(/premium/i.test(m)) return "Spotify Premium is required.";
+  return m;
+}
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const norm = s => String(s||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
 const music = {
   async list_speakers(){
     const j = await sp("GET","/me/player/devices");
-    return j.devices.map(d=>({id:d.id,name:d.name,type:d.type,active:d.is_active,volume:d.volume_percent}));
+    return j.devices.map(d=>({id:d.id,name:d.name,type:d.type,active:d.is_active,volume:d.volume_percent,volume_control:d.supports_volume!==false}));
+  },
+  // One-step: search + pick the best match + play on the chosen speaker (handles waking/transferring the Echo)
+  async play_music(i){
+    const devs = await music.list_speakers();
+    let dev = i.speaker ? matchSpeaker(devs, i.speaker) : (devs.find(d=>d.active) || devs.find(d=>d.id===store.get("last_dev")) || devs.find(d=>/echo|alexa/i.test(d.name)) || devs[0]);
+    if(i.speaker && !dev) return {error:`no speaker matches "${i.speaker}"`, available_speakers:devs.map(d=>d.name), hint:"If the room is missing, the user should say 'Alexa, play Spotify' to that Echo once."};
+    if(!dev) return {error:"no speakers available. Tell the user to say 'Alexa, play Spotify' to the Echo once."};
+    const kind = i.kind || "any";
+    const type = {artist:"artist",song:"track",album:"album",playlist:"playlist",mood:"playlist"}[kind] || "artist,track,playlist";
+    const j = await sp("GET","/search?"+new URLSearchParams({q:i.query,type,limit:"5",market:"from_token"}));
+    const arts = (j.artists&&j.artists.items||[]).filter(Boolean), trs = (j.tracks&&j.tracks.items||[]).filter(Boolean),
+          pls = (j.playlists&&j.playlists.items||[]).filter(Boolean), als = (j.albums&&j.albums.items||[]).filter(Boolean);
+    let body = null, what = "";
+    const q = norm(i.query);
+    const useArtist = a => { body = {context_uri:a.uri}; what = a.name };
+    const useTrack = t => { body = t.album ? {context_uri:t.album.uri, offset:{uri:t.uri}} : {uris:[t.uri]}; what = t.name+" - "+(t.artists||[]).map(a=>a.name).join(", ") };
+    const usePl = p => { body = {context_uri:p.uri}; what = "playlist "+p.name };
+    if(kind==="artist" && arts[0]) useArtist(arts[0]);
+    else if(kind==="song" && trs[0]) useTrack(trs[0]);
+    else if(kind==="album" && als[0]){ body = {context_uri:als[0].uri}; what = "album "+als[0].name }
+    else if((kind==="playlist"||kind==="mood") && pls[0]) usePl(pls[0]);
+    else if(kind==="any"){
+      const a = arts.find(x=>norm(x.name)===q) || (arts[0] && q.includes(norm(arts[0].name)) ? arts[0] : null);
+      if(a) useArtist(a); else if(trs[0]) useTrack(trs[0]); else if(pls[0]) usePl(pls[0]); else if(arts[0]) useArtist(arts[0]);
+    }
+    if(!body) return {error:`nothing found on Spotify for "${i.query}"`, hint:"Try again with the original-language spelling of the name, or a different kind."};
+    const url = "/me/player/play?device_id="+encodeURIComponent(dev.id);
+    try{ await sp("PUT", url, body) }
+    catch(e){
+      // Echo devices often need to be made active first
+      try{ await sp("PUT","/me/player",{device_ids:[dev.id],play:false}); await sleep(900); await sp("PUT", url, body) }
+      catch(e2){ return {error:friendly(e2), speaker:dev.name} }
+    }
+    store.set("last_dev", dev.id);
+    return {playing:what, speaker:dev.name};
   },
   async now_playing(){
     const j = await sp("GET","/me/player");
@@ -705,15 +764,33 @@ const music = {
     const body = {};
     if(i.uris) body.uris = i.uris;
     if(i.context_uri) body.context_uri = i.context_uri;
-    await sp("PUT","/me/player/play"+(i.speaker_id?"?device_id="+encodeURIComponent(i.speaker_id):""), Object.keys(body).length?body:undefined);
+    let id = i.speaker_id;
+    if(!id){ const devs = await music.list_speakers(); if(!devs.some(d=>d.active)){ const d = devs.find(x=>x.id===store.get("last_dev")) || devs[0]; if(d) id = d.id } }
+    try{ await sp("PUT","/me/player/play"+(id?"?device_id="+encodeURIComponent(id):""), Object.keys(body).length?body:undefined) }
+    catch(e){ return {error:friendly(e)} }
     return {ok:true};
   },
-  async pause(){ await sp("PUT","/me/player/pause"); return {ok:true} },
-  async next(){ await sp("POST","/me/player/next"); return {ok:true} },
-  async previous(){ await sp("POST","/me/player/previous"); return {ok:true} },
-  async set_volume(i){ await sp("PUT","/me/player/volume?volume_percent="+Math.max(0,Math.min(100,Math.round(i.percent)))); return {ok:true} },
-  async move_to_speaker(i){ await sp("PUT","/me/player",{device_ids:[i.speaker_id],play:true}); return {ok:true} },
-  async shuffle(i){ await sp("PUT","/me/player/shuffle?state="+(i.on?"true":"false")); return {ok:true} }
+  async resume(){ return await music.play({}) },
+  async pause(){ try{ await sp("PUT","/me/player/pause") }catch(e){ return {error:friendly(e)} } return {ok:true} },
+  async next(){ try{ await sp("POST","/me/player/next") }catch(e){ return {error:friendly(e)} } return {ok:true} },
+  async previous(){ try{ await sp("POST","/me/player/previous") }catch(e){ return {error:friendly(e)} } return {ok:true} },
+  async set_volume(i){
+    const p = await sp("GET","/me/player");
+    let v = i.percent;
+    if(i.change!=null){ const cur = p && p.device && p.device.volume_percent; v = (cur==null?50:cur) + i.change }
+    v = Math.max(0,Math.min(100,Math.round(v)));
+    if(p && p.device && p.device.supports_volume===false) return {error:friendly("VOLUME_CONTROL_DISALLOW")};
+    try{ await sp("PUT","/me/player/volume?volume_percent="+v) }catch(e){ return {error:friendly(e)} }
+    return {ok:true, volume:v};
+  },
+  async move_to_speaker(i){
+    const devs = await music.list_speakers();
+    const d = i.speaker_id ? devs.find(x=>x.id===i.speaker_id) : matchSpeaker(devs, i.speaker);
+    if(!d) return {error:`no speaker matches "${i.speaker||i.speaker_id}"`, available_speakers:devs.map(x=>x.name)};
+    try{ await sp("PUT","/me/player",{device_ids:[d.id],play:true}) }catch(e){ return {error:friendly(e)} }
+    store.set("last_dev", d.id); return {ok:true, speaker:d.name};
+  },
+  async shuffle(i){ try{ await sp("PUT","/me/player/shuffle?state="+(i.on?"true":"false")) }catch(e){ return {error:friendly(e)} } return {ok:true} }
 };
 async function loadMusic(){
   if(!store.get("sp_rt")){ $("devs").innerHTML='<span class="hint">חבר את ספוטיפיי בהגדרות.</span>'; return }
@@ -738,7 +815,7 @@ async function loadMusic(){
     } else { $("tt").textContent = "שום דבר לא מתנגן"; $("ar").textContent = ""; $("where").textContent = "" }
   }catch(e){ $("devs").innerHTML = `<span class="hint">${esc(e.message)}</span>` }
 }
-const later = f => ()=>f().then(()=>setTimeout(loadMusic,600)).catch(e=>say(e.message,"err"));
+const later = f => ()=>f().then(r=>{ if(r && r.error) say(/speaker|device/i.test(r.error) ? "הרמקול לא זמין. תגיד לאקו \"Alexa, play Spotify\" ונסה שוב." : r.error, "err"); setTimeout(loadMusic,600) }).catch(e=>say(e.message,"err"));
 $("bPlay").onclick = later(()=>$("bPlay").dataset.playing?music.pause():music.play({}));
 $("bNext").onclick = later(()=>music.next());
 $("bPrev").onclick = later(()=>music.previous());
@@ -794,13 +871,13 @@ const NOARGS = {type:"object",properties:{}};
 const TOOLS = [
   {name:"list_speakers",description:"List Spotify Connect speakers (Echo devices etc.) with ids.",input_schema:NOARGS},
   {name:"now_playing",description:"What is playing now, on which speaker, volume.",input_schema:NOARGS},
-  {name:"search",description:"Search Spotify; returns items with uri.",input_schema:{type:"object",properties:{query:{type:"string"},type:{type:"string",description:"comma list of track,playlist,album,artist"}},required:["query"]}},
-  {name:"play",description:"Play uris (track list) OR context_uri (playlist/album/artist). Omit both to resume. speaker_id optional.",input_schema:{type:"object",properties:{uris:{type:"array",items:{type:"string"}},context_uri:{type:"string"},speaker_id:{type:"string"}}}},
+  {name:"play_music",description:"Search Spotify and play the best match on a speaker, in one step. Use this for every 'play X' request. query: artist/song/album/playlist name in its ORIGINAL spelling (English names in English letters even if the user said them in Hebrew, e.g. 'קולדפליי' -> 'Coldplay'; Israeli artists in Hebrew, e.g. 'עומר אדם'), or mood words in English for moods (e.g. 'relaxing evening', 'israeli hits', 'kids songs hebrew'). speaker: the room or speaker name as the user said it (e.g. 'סלון'); omit to use the current speaker.",input_schema:{type:"object",properties:{query:{type:"string"},kind:{type:"string",enum:["artist","song","album","playlist","mood","any"]},speaker:{type:"string"}},required:["query"]}},
+  {name:"resume",description:"Resume paused music.",input_schema:NOARGS},
   {name:"pause",description:"Pause music.",input_schema:NOARGS},
   {name:"next",description:"Next track.",input_schema:NOARGS},
   {name:"previous",description:"Previous track.",input_schema:NOARGS},
-  {name:"set_volume",description:"Set volume 0-100.",input_schema:{type:"object",properties:{percent:{type:"number"}},required:["percent"]}},
-  {name:"move_to_speaker",description:"Move playback to another speaker.",input_schema:{type:"object",properties:{speaker_id:{type:"string"}},required:["speaker_id"]}},
+  {name:"set_volume",description:"Set volume. Either percent (0-100) or change (e.g. +15 for 'louder', -15 for 'quieter').",input_schema:{type:"object",properties:{percent:{type:"number"},change:{type:"number"}}}},
+  {name:"move_to_speaker",description:"Move the current music to another speaker. speaker: room or speaker name as the user said it.",input_schema:{type:"object",properties:{speaker:{type:"string"}},required:["speaker"]}},
   {name:"shuffle",description:"Shuffle on/off.",input_schema:{type:"object",properties:{on:{type:"boolean"}},required:["on"]}},
   {name:"get_weather",description:"Current weather and 7-day forecast for Rishon LeZion.",input_schema:NOARGS},
   {name:"get_calendar",description:"The user's Outlook events from today for N days (Israel local time).",input_schema:{type:"object",properties:{days:{type:"number"}}}},
@@ -820,7 +897,7 @@ function system(){
   const now = new Date().toLocaleString("he-IL",{timeZone:TZ,dateStyle:"full",timeStyle:"short"});
   return `You are the home assistant on a wall tablet in a family home in Rishon LeZion, Israel. Now: ${now} (ISO local: ${localNow()}).
 The user speaks Hebrew via speech-to-text, which may contain errors; interpret generously.
-You can: play Spotify on their Amazon Echo speakers (match Hebrew room names like סלון/מטבח/חדר שינה to speakers via list_speakers; for vague requests search a fitting playlist and play it), read the weather, read and add Outlook calendar events, manage the shared shopping list, run kitchen timers, and set reminders.
+You can: play Spotify on their Amazon Echo speakers (always use play_music for play requests; pass the room as the user said it; for vague requests use kind "mood"; if play_music returns an error, try once more with a different spelling or kind, then explain briefly), read the weather, read and add Outlook calendar events, manage the shared shopping list, run kitchen timers, and set reminders.
 Use a timer for a countdown ("טיימר 10 דקות"); use a reminder for something to remember at a time ("תזכיר לי ב-8 ל...", "תזכיר לי בעוד שעה...").
 Requests may start with the wake phrase "היי בית"; ignore it.
 Act first with tools, then reply in one or two short spoken Hebrew sentences. No markdown, no emoji, no lists. Say times the way Israelis say them.
@@ -833,7 +910,7 @@ async function ask(text){
   if(!key){ say("צריך לחבר את Claude בהגדרות","err"); openSetup(); return }
   if(busy) return;
   lastTouch = Date.now();
-  busy = true; say(text,"me"); status("חושב…");
+  busy = true; say(text,"me"); status("חושב…"); let detail = "";
   if(rec){ try{ rec.abort() }catch(e){} }
   chat.push({role:"user",content:text});
   chat = chat.slice(-14);
@@ -859,13 +936,14 @@ async function ask(text){
       const results = [];
       for(const u of uses){
         let out;
-        try{ out = await actions[u.name](u.input||{}) }catch(e){ out = {error:e.message} }
+        try{ out = actions[u.name] ? await actions[u.name](u.input||{}) : {error:"unknown tool"} }catch(e){ out = {error:e.message} }
+        if(out && out.error) detail = "פירוט: "+u.name+" · "+String(out.error).slice(0,160);
         results.push({type:"tool_result",tool_use_id:u.id,content:JSON.stringify(out).slice(0,6000)});
       }
       chat.push({role:"user",content:results});
     }
   }catch(e){ say(e.message,"err"); chat = [] }
-  busy = false; status(""); setTimeout(loadMusic,800); resumeListening();
+  busy = false; status(detail); setTimeout(loadMusic,800); resumeListening();
 }
 let speaking = false, speakGuard = null, speakSeq = 0;
 function speak(t){
