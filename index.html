@@ -253,7 +253,17 @@ dialog a{color:var(--sky)}
     <div class="stephead">1 · העוזר הקולי <span class="badge" id="stClaude"></span></div>
     <div class="row">
       <label class="opt"><input type="radio" name="engine" id="engOpenai" value="openai"> ChatGPT</label>
+      <label class="opt"><input type="radio" name="engine" id="engGemini" value="gemini"> Gemini (חינם)</label>
       <label class="opt"><input type="radio" name="engine" id="engClaude" value="claude"> Claude</label>
+    </div>
+    <div id="cfgGemini" class="stepbody" hidden>
+      <ol>
+        <li>היכנס ל-<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> עם חשבון הגוגל שלך</li>
+        <li>לחץ <b>Create API key</b>, העתק והדבק כאן. לא צריך להזין כרטיס אשראי</li>
+      </ol>
+      <input id="gkey" type="password" placeholder="AIza…" autocomplete="off" aria-label="Gemini API Key">
+      <label class="opt">מודל: <input id="gmodel" list="gmodels" placeholder="gemini-flash-latest" autocomplete="off" style="direction:ltr;min-width:12em"><datalist id="gmodels"></datalist></label>
+      <p class="hint" style="margin:0">בחינם יש מכסה יומית, שמספיקה לשימוש ביתי רגיל. בגרסה החינמית גוגל רשאית להשתמש בשיחות כדי לשפר את המוצרים שלה, וחיפוש באינטרנט לרוב לא כלול.</p>
     </div>
     <div id="cfgOpenai" class="stepbody">
       <ol>
@@ -306,12 +316,15 @@ dialog a{color:var(--sky)}
   <div class="step">
     <div class="stephead">4 · מסך: תמונות ומצב לילה <span class="badge opt">רשות</span></div>
     <ol>
-      <li>לחץ <b>בחר תמונות</b>. בחלון שנפתח עבור ל-<b>אלבומים</b>, בחר את האלבום מגוגל פוטוס וסמן תמונות</li>
+      <li><b>תמונות בודדות:</b> לחץ <b>בחר תמונות</b> ← <b>אלבומים</b> ← בחר את האלבום מגוגל פוטוס וסמן תמונות</li>
+      <li><b>אלבום שלם:</b> ב-<a href="https://photos.google.com/albums" target="_blank" rel="noopener">photos.google.com</a> פתח את האלבום ← <b>⋮</b> ← <b>הורדת הכול</b>. מתקבל קובץ ZIP. אחר כך לחץ <b>ייבא אלבום שלם</b> ובחר את הקובץ מתיקיית ההורדות. אם "הורדת הכול" לא מופיע בטאבלט, ב-Chrome בחר ⋮ ← <b>אתר למחשב</b></li>
       <li>אפשר לחזור על זה כדי להוסיף עוד. התמונות נשמרות על הטאבלט</li>
     </ol>
     <div class="row" style="align-items:center">
       <label class="pri" for="photoIn">בחר תמונות</label>
       <input type="file" id="photoIn" accept="image/*" multiple hidden>
+      <label class="btn" for="albumIn" style="display:inline-block;cursor:pointer">ייבא אלבום שלם</label>
+      <input type="file" id="albumIn" accept=".zip,application/zip,image/*" multiple hidden>
       <span class="hint" id="photoCount"></span>
       <button class="btn" id="photoClear">מחק את כל התמונות</button>
     </div>
@@ -334,7 +347,7 @@ dialog a{color:var(--sky)}
 </div>
 
 <script>
-const APP_VERSION = "2.5.0";
+const APP_VERSION = "2.6.0";
 try{ if(!localStorage.getItem("engine") && localStorage.getItem("akey")) localStorage.setItem("engine","claude") }catch(e){}
 const $ = id => document.getElementById(id);
 const store = {
@@ -940,14 +953,16 @@ If the user asks for something you have no tool for (for example sending a Whats
 When adding an event, resolve relative days ("ביום שלישי", "מחר") from the current date; if the time is unclear, ask briefly instead of guessing.
 If a tool says a service is not connected, tell the user to open הגדרות. If a speaker is missing, tell them to say "Alexa, play Spotify" to that Echo once.`;
 }
-let chat = [], busy = false, oPrev = null, oLast = 0, webOk = {claude:true, openai:true};
-function engine(){ return store.get("engine")==="claude" ? "claude" : "openai" }
-async function runTool(name, input, onErr){
+let chat = [], busy = false, oPrev = null, oLast = 0, gchat = [], gLast = 0, webOk = {claude:true, openai:true, gemini:true};
+const ENGINE_KEY = {openai:"okey", claude:"akey", gemini:"gkey"};
+function engine(){ const e = store.get("engine"); return ENGINE_KEY[e] ? e : "openai" }
+async function runToolObj(name, input, onErr){
   let out;
   try{ out = actions[name] ? await actions[name](input||{}) : {error:"unknown tool"} }catch(e){ out = {error:e.message} }
   if(out && out.error) onErr("פירוט: "+name+" · "+String(out.error).slice(0,160));
-  return JSON.stringify(out).slice(0,6000);
+  return out == null ? {ok:true} : out;
 }
+async function runTool(name, input, onErr){ return JSON.stringify(await runToolObj(name, input, onErr)).slice(0,6000) }
 // Claude (Anthropic Messages API), with Anthropic's web search tool when the account allows it
 async function askClaude(key, text, onErr){
   chat.push({role:"user",content:text});
@@ -1011,17 +1026,58 @@ async function askOpenAI(key, text, onErr){
   }
   return "";
 }
+// Gemini (Google AI Studio key; free tier available)
+function gemTool(t){ const p = t.input_schema; return p && p.properties && Object.keys(p.properties).length ? {name:t.name, description:t.description, parameters:p} : {name:t.name, description:t.description} }
+async function askGemini(key, text, onErr){
+  const model = (store.get("gmodel")||"gemini-flash-latest").trim().replace(/^models\//,"");
+  if(Date.now()-gLast > 15*60*1000) gchat = [];
+  gchat.push({role:"user", parts:[{text}]});
+  gchat = gchat.slice(-16);
+  while(gchat.length && !(gchat[0].role==="user" && gchat[0].parts.some(p=>typeof p.text==="string"))) gchat.shift();
+  for(let step=0; step<10; step++){
+    const tools = [{functionDeclarations:TOOLS.map(gemTool)}];
+    if(webOk.gemini) tools.push({google_search:{}});
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{method:"POST",
+      headers:{"Content-Type":"application/json","x-goog-api-key":key},
+      body:JSON.stringify({systemInstruction:{parts:[{text:system()}]}, contents:gchat, tools})});
+    const j = await r.json();
+    if(!r.ok){
+      const msg = JSON.stringify(j);
+      if(webOk.gemini && (r.status===400 || r.status===429 || r.status===403) && /search|grounding|tool/i.test(msg) && !/API_KEY|API key/i.test(msg)){ webOk.gemini = false; step--; continue }
+      if(/API_KEY_INVALID|API key not valid/i.test(msg) || r.status===401) throw new Error("מפתח Gemini לא תקין. בדוק אותו בהגדרות.");
+      if(r.status===429) throw new Error("נגמרה המכסה החינמית של Gemini לעכשיו. נסה שוב בעוד דקה, או מחר אם נגמרה המכסה היומית.");
+      if(r.status===404) throw new Error("המודל "+model+" לא זמין. בחר מודל אחר בהגדרות.");
+      throw new Error((j.error&&j.error.message)||"שגיאה מ-Gemini");
+    }
+    gLast = Date.now();
+    const cand = j.candidates && j.candidates[0], content = cand && cand.content;
+    if(!content || !content.parts) return cand && /SAFETY|BLOCK/i.test(cand.finishReason||"") ? "על זה אני לא יכול לענות." : "";
+    gchat.push({role:"model", parts:content.parts});
+    const calls = content.parts.filter(p=>p.functionCall);
+    if(!calls.length) return content.parts.filter(p=>typeof p.text==="string" && !p.thought).map(p=>p.text).join("").trim();
+    const parts = [];
+    for(const c of calls){
+      const out = await runToolObj(c.functionCall.name, c.functionCall.args||{}, onErr);
+      const fr = {name:c.functionCall.name, response:{result:out}};
+      if(c.functionCall.id) fr.id = c.functionCall.id;
+      parts.push({functionResponse:fr});
+    }
+    gchat.push({role:"user", parts});
+  }
+  return "";
+}
 async function ask(text){
-  const eng = engine(), key = eng==="openai" ? store.get("okey") : store.get("akey");
+  const eng = engine(), key = store.get(ENGINE_KEY[eng]);
   if(!key){ say("צריך לחבר את העוזר הקולי בהגדרות","err"); openSetup(); return }
   if(busy) return;
   lastTouch = Date.now();
   busy = true; say(text,"me"); status("חושב…"); let detail = "";
   if(rec){ try{ rec.abort() }catch(e){} }
   try{
-    const reply = eng==="openai" ? await askOpenAI(key, text, d=>detail = d) : await askClaude(key, text, d=>detail = d);
+    const onErr = d=>detail = d;
+    const reply = eng==="openai" ? await askOpenAI(key, text, onErr) : eng==="gemini" ? await askGemini(key, text, onErr) : await askClaude(key, text, onErr);
     if(reply){ say(reply,"ai"); speak(reply) }
-  }catch(e){ say(e.message,"err"); chat = []; oPrev = null }
+  }catch(e){ say(e.message,"err"); chat = []; oPrev = null; gchat = [] }
   busy = false; status(detail); setTimeout(loadMusic,800); resumeListening();
 }
 let speaking = false, speakGuard = null, speakSeq = 0;
@@ -1111,28 +1167,41 @@ $("typeForm").onsubmit = e=>{ e.preventDefault(); const t=$("txt").value.trim();
 /* ---------- setup wizard ---------- */
 function badge(el, done, label){ el.className = "badge "+(done?"done":"todo"); el.textContent = done ? "מחובר ✓" : label }
 function refreshSetup(){
-  badge($("stClaude"), !!store.get(engine()==="openai" ? "okey" : "akey"), "להגדרה");
-  $("engOpenai").checked = engine()==="openai"; $("engClaude").checked = engine()==="claude";
-  $("cfgOpenai").hidden = engine()!=="openai"; $("cfgClaude").hidden = engine()!=="claude";
+  badge($("stClaude"), !!store.get(ENGINE_KEY[engine()]), "להגדרה");
+  $("engOpenai").checked = engine()==="openai"; $("engClaude").checked = engine()==="claude"; $("engGemini").checked = engine()==="gemini";
+  $("cfgOpenai").hidden = engine()!=="openai"; $("cfgClaude").hidden = engine()!=="claude"; $("cfgGemini").hidden = engine()!=="gemini";
   badge($("stSpotify"), !!store.get("sp_rt"), "להגדרה");
   badge($("stMs"), !!store.get("ms_rt"), "להגדרה");
 }
-function allConnected(){ return store.get(engine()==="openai" ? "okey" : "akey") && store.get("sp_rt") && store.get("ms_rt") }
+function allConnected(){ return store.get(ENGINE_KEY[engine()]) && store.get("sp_rt") && store.get("ms_rt") }
 function saveFields(){
   store.set("akey",$("akey").value.trim()||null);
   store.set("okey",$("okey").value.trim()||null);
   store.set("omodel",$("omodel").value.trim()||null);
+  store.set("gkey",$("gkey").value.trim()||null);
+  store.set("gmodel",$("gmodel").value.trim()||null);
   store.set("cid",$("cid").value.trim()||null);
   store.set("mcid",$("mcid").value.trim()||null);
   refreshSetup();
 }
 function openSetup(){
-  $("akey").value = store.get("akey")||""; $("okey").value = store.get("okey")||""; $("omodel").value = store.get("omodel")||""; loadModels(); $("cid").value = store.get("cid")||""; $("mcid").value = store.get("mcid")||"";
+  $("akey").value = store.get("akey")||""; $("okey").value = store.get("okey")||""; $("omodel").value = store.get("omodel")||""; $("gkey").value = store.get("gkey")||""; $("gmodel").value = store.get("gmodel")||""; loadModels(); loadGemModels(); $("cid").value = store.get("cid")||""; $("mcid").value = store.get("mcid")||"";
   refreshSetup(); if(!$("setup").open) $("setup").showModal();
 }
-["akey","okey","omodel","cid","mcid"].forEach(id=>$(id).addEventListener("change", saveFields));
+["akey","okey","omodel","gkey","gmodel","cid","mcid"].forEach(id=>$(id).addEventListener("change", saveFields));
+$("gkey").addEventListener("change", loadGemModels);
+async function loadGemModels(){
+  const key = store.get("gkey"); if(!key) return;
+  try{
+    const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200",{headers:{"x-goog-api-key":key}});
+    if(!r.ok) return;
+    const ids = ((await r.json()).models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent"))
+      .map(m=>m.name.replace(/^models\//,"")).filter(id=>/^gemini/i.test(id) && !/tts|live|transcribe|embedding|image|audio|translate/i.test(id)).sort().reverse();
+    $("gmodels").innerHTML = ["gemini-flash-latest", ...ids].map(id=>`<option value="${esc(id)}"></option>`).join("");
+  }catch(e){}
+}
 $("okey").addEventListener("change", loadModels);
-document.querySelectorAll('input[name="engine"]').forEach(r=>r.onchange = ()=>{ store.set("engine", r.value); chat = []; oPrev = null; refreshSetup() });
+document.querySelectorAll('input[name="engine"]').forEach(r=>r.onchange = ()=>{ store.set("engine", r.value); chat = []; oPrev = null; gchat = []; refreshSetup() });
 // Fill the model suggestions from the user's own OpenAI account
 async function loadModels(){
   const key = store.get("okey"); if(!key) return;
@@ -1171,16 +1240,41 @@ async function shrink(file){
   c.getContext("2d").drawImage(bmp,0,0,c.width,c.height); if(bmp.close) bmp.close();
   return await new Promise(r=>c.toBlob(r,"image/jpeg",.85));
 }
-$("photoIn").onchange = async e=>{
-  const files = [...e.target.files]; e.target.value = "";
-  let n = 0;
+let jszipP = null;
+function loadJSZip(){
+  return jszipP || (jszipP = new Promise((res,rej)=>{
+    const sc = document.createElement("script");
+    sc.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+    sc.onload = ()=>res(window.JSZip); sc.onerror = ()=>{ jszipP = null; rej(new Error("zip")) };
+    document.head.appendChild(sc);
+  }));
+}
+const IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
+// Accepts photos and/or ZIP files (Google Photos "Download all" gives a ZIP of the whole album)
+async function importFiles(list){
+  const files = [...list];
+  let saved = 0, skipped = 0, total = 0;
+  const saveBlob = async (blob)=>{
+    try{ const b = await shrink(blob); if(b){ await reqP((await photoStore("readwrite")).add({blob:b,added:Date.now()})); saved++ } else skipped++ }catch(err){ skipped++ }
+    $("photoCount").textContent = `שומר… ${saved}` + (total ? `/${total}` : "");
+  };
   for(const f of files){
-    try{ const b = await shrink(f); if(b){ await reqP((await photoStore("readwrite")).add({blob:b,added:Date.now()})); n++ } }catch(err){}
-    $("photoCount").textContent = `שומר… ${n}/${files.length}`;
+    if(/\.zip$/i.test(f.name) || /zip/.test(f.type)){
+      let zip;
+      try{ const JSZip = await loadJSZip(); zip = await JSZip.loadAsync(f) }catch(e){ say("לא הצלחתי לפתוח את קובץ ה-ZIP.","err"); continue }
+      const entries = Object.values(zip.files).filter(z=>!z.dir && !/(^|\/)\./.test(z.name));
+      const imgs = entries.filter(z=>IMG_RE.test(z.name));
+      skipped += entries.length - imgs.length; total += imgs.length;
+      for(const z of imgs) await saveBlob(await z.async("blob"));
+    } else if(/^image\//.test(f.type) || IMG_RE.test(f.name)){ total++; await saveBlob(f) }
+    else skipped++;
   }
   await refreshPhotoIds();
-  say(n ? `נשמרו ${n} תמונות` : "לא הצלחתי לשמור את התמונות. נסה לבחור שוב.", n?"ai":"err");
-};
+  if(saved) say(`נשמרו ${saved} תמונות` + (skipped ? `. ${skipped} קבצים דולגו (סרטונים או פורמט שלא נתמך, כמו HEIC)` : ""), "ai");
+  else say("לא נשמרו תמונות. בחר תמונות או קובץ ZIP של אלבום.", "err");
+}
+$("photoIn").onchange = e=>{ const f = e.target.files; importFiles(f).finally(()=>e.target.value = "") };
+$("albumIn").onchange = e=>{ const f = e.target.files; importFiles(f).finally(()=>e.target.value = "") };
 let clearArm = 0;
 $("photoClear").onclick = async ()=>{
   if(Date.now()-clearArm > 4000){ clearArm = Date.now(); $("photoClear").textContent = "לחץ שוב כדי למחוק"; setTimeout(()=>$("photoClear").textContent = "מחק את כל התמונות", 4000); return }
@@ -1251,7 +1345,7 @@ loadScreenSettings(); refreshPhotoIds();
 function bootData(){ loadWeather(); loadCalendar(); loadShop(); loadMusic(); loadReminders() }
 (async ()=>{
   await handleRedirect();
-  if(!store.get("akey") && !store.get("okey") && !store.get("sp_rt") && !store.get("ms_rt")) openSetup();
+  if(!store.get("akey") && !store.get("okey") && !store.get("gkey") && !store.get("sp_rt") && !store.get("ms_rt")) openSetup();
   bootData();
   checkUpdate();
   setInterval(loadMusic, 15000);
