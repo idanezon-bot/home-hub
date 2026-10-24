@@ -173,7 +173,7 @@ dialog a{color:var(--sky)}
           <button id="mic" aria-label="דבר עם Claude">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
           </button>
-          <div class="hint" id="hint">לחץ ודבר, או אמור "היי בית" ואחריו בקשה: "טיימר 10 דקות לפסטה", "תזכיר לי מחר ב-8 להוציא את הזבל", "תוסיף חלב וביצים", "תשים מוזיקה בסלון"</div>
+          <div class="hint" id="hint">לחץ ודבר, או אמור "היי בית" ואחריו בקשה</div>
         </div>
         <form class="type" id="typeForm">
           <input class="field" id="txt" placeholder="או הקלד כאן…" autocomplete="off">
@@ -318,7 +318,7 @@ dialog a{color:var(--sky)}
 </div>
 
 <script>
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.3.1";
 const $ = id => document.getElementById(id);
 const store = {
   get(k){ try{return localStorage.getItem(k)}catch(e){return null} },
@@ -886,7 +886,7 @@ const TOOLS = [
   {name:"shopping_add",description:"Add items to the shopping list. One item per entry, in Hebrew as said, with quantity if given (e.g. '2 חלב').",input_schema:{type:"object",properties:{items:{type:"array",items:{type:"string"}}},required:["items"]}},
   {name:"shopping_remove",description:"Remove/check off items from the shopping list.",input_schema:{type:"object",properties:{items:{type:"array",items:{type:"string"}}},required:["items"]}},
   {name:"shopping_clear",description:"Clear the whole shopping list. Only when explicitly asked.",input_schema:NOARGS},
-  {name:"set_timer",description:"Start a countdown timer on the tablet. It rings and announces when done.",input_schema:{type:"object",properties:{minutes:{type:"number"},seconds:{type:"number"},label:{type:"string",description:"short Hebrew label, e.g. פסטה"}}}},
+  {name:"set_timer",description:"Start a countdown timer on the tablet. It rings and announces when done.",input_schema:{type:"object",properties:{minutes:{type:"number"},seconds:{type:"number"},label:{type:"string",description:"short Hebrew label as the user said it, if any"}}}},
   {name:"list_timers",description:"List running timers and remaining time.",input_schema:NOARGS},
   {name:"set_reminder",description:"Set a reminder for a specific time. The tablet rings and says it aloud at that time; if Microsoft is connected the phone also gets a To Do notification. 'when' is Israel local time YYYY-MM-DDTHH:MM; compute relative times ('בעוד 20 דקות', 'מחר בבוקר' = 08:00) from now.",input_schema:{type:"object",properties:{text:{type:"string",description:"short Hebrew reminder text, e.g. להוציא את הזבל"},when:{type:"string"}},required:["text","when"]}},
   {name:"list_reminders",description:"List upcoming reminders.",input_schema:NOARGS},
