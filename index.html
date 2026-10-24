@@ -85,6 +85,7 @@ input.field{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line)
 .step .opt{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--dim);font-size:15px}
 .step .opt input,.step .opt select{width:auto;background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:6px 8px;font:15px var(--font)}
 .step label.pri{display:inline-block}
+.stepbody{display:grid;gap:8px}
 
 /* music */
 .now{display:flex;gap:14px;align-items:center}
@@ -170,7 +171,7 @@ dialog a{color:var(--sky)}
     <div class="col">
       <section class="panel talk">
         <div class="microw">
-          <button id="mic" aria-label="דבר עם Claude">
+          <button id="mic" aria-label="דבר עם העוזר">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
           </button>
           <div class="hint" id="hint">לחץ ודבר, או אמור "היי בית" ואחריו בקשה</div>
@@ -249,13 +250,28 @@ dialog a{color:var(--sky)}
   <p class="hint" style="margin:0 0 8px">שלושה חיבורים, כל אחד פעם אחת בלבד. מזג האוויר והשעון כבר עובדים.</p>
 
   <div class="step">
-    <div class="stephead">1 · Claude (העוזר הקולי) <span class="badge" id="stClaude"></span></div>
-    <ol>
-      <li>היכנס ל-<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> והירשם</li>
-      <li>ב-<b>Billing</b> הטען קרדיט (5$ מספיקים לחודשים)</li>
-      <li>ב-<b>API Keys</b> לחץ <b>Create Key</b>, העתק והדבק כאן</li>
-    </ol>
-    <input id="akey" type="password" placeholder="sk-ant-…" autocomplete="off" aria-label="Anthropic API Key">
+    <div class="stephead">1 · העוזר הקולי <span class="badge" id="stClaude"></span></div>
+    <div class="row">
+      <label class="opt"><input type="radio" name="engine" id="engOpenai" value="openai"> ChatGPT</label>
+      <label class="opt"><input type="radio" name="engine" id="engClaude" value="claude"> Claude</label>
+    </div>
+    <div id="cfgOpenai" class="stepbody">
+      <ol>
+        <li>היכנס ל-<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a> עם החשבון של ה-ChatGPT שלך</li>
+        <li>ב-<b>Billing</b> הטען קרדיט. מנוי ChatGPT רגיל לא כולל את זה: זה תשלום נפרד לפי שימוש, כמה שקלים בחודש</li>
+        <li>ב-<b>API keys</b> לחץ <b>Create new secret key</b>, העתק והדבק כאן</li>
+      </ol>
+      <input id="okey" type="password" placeholder="sk-…" autocomplete="off" aria-label="OpenAI API Key">
+      <label class="opt">מודל: <input id="omodel" list="omodels" placeholder="gpt-5-mini" autocomplete="off" style="direction:ltr;min-width:12em"><datalist id="omodels"></datalist></label>
+    </div>
+    <div id="cfgClaude" class="stepbody" hidden>
+      <ol>
+        <li>היכנס ל-<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> והירשם</li>
+        <li>ב-<b>Billing</b> הטען קרדיט (5$ מספיקים לחודשים)</li>
+        <li>ב-<b>API Keys</b> לחץ <b>Create Key</b>, העתק והדבק כאן</li>
+      </ol>
+      <input id="akey" type="password" placeholder="sk-ant-…" autocomplete="off" aria-label="Anthropic API Key">
+    </div>
   </div>
 
   <div class="step">
@@ -318,7 +334,8 @@ dialog a{color:var(--sky)}
 </div>
 
 <script>
-const APP_VERSION = "2.4.1";
+const APP_VERSION = "2.5.0";
+try{ if(!localStorage.getItem("engine") && localStorage.getItem("akey")) localStorage.setItem("engine","claude") }catch(e){}
 const $ = id => document.getElementById(id);
 const store = {
   get(k){ try{return localStorage.getItem(k)}catch(e){return null} },
@@ -838,7 +855,7 @@ $("bNext").onclick = later(()=>music.next());
 $("bPrev").onclick = later(()=>music.previous());
 $("vol").onchange = e=>music.set_volume({percent:+e.target.value}).catch(err=>say(err.message,"err"));
 
-/* ---------- Claude ---------- */
+/* ---------- Voice assistant (ChatGPT or Claude) ---------- */
 const actions = {
   ...music,
   async get_weather(){
@@ -912,54 +929,99 @@ const TOOLS = [
 ];
 function system(){
   const now = new Date().toLocaleString("he-IL",{timeZone:TZ,dateStyle:"full",timeStyle:"short"});
-  return `You are the home assistant on a wall tablet in a family home in Rishon LeZion, Israel. Now: ${now} (ISO local: ${localNow()}).
+  return `You are the family's voice assistant on a wall tablet in their home in Rishon LeZion, Israel. Now: ${now} (ISO local: ${localNow()}).
 The user speaks Hebrew via speech-to-text, which may contain errors; interpret generously.
-You can: play Spotify on their Amazon Echo speakers (always use play_music for play requests; pass the room as the user said it; for vague requests use kind "mood"; if play_music returns an error, try once more with a different spelling or kind, then explain briefly), read the weather, read and add Outlook calendar events, manage the shared shopping list, run kitchen timers, and set reminders.
+Answer any question the user asks: general knowledge, advice, explanations, math, translations, recipes, homework help, ideas. When the answer depends on current information (news, sports results, prices, opening hours, today's events) use web search if it is available; if it is not, say your information may be out of date.
+Home tasks you can do with tools: play Spotify on their Amazon Echo speakers (always use play_music for play requests; pass the room as the user said it; for vague requests use kind "mood"; if play_music returns an error, try once more with a different spelling or kind, then explain briefly), read the weather, read and add Outlook calendar events, manage the shared shopping list, run kitchen timers, and set reminders.
 Use a timer for a countdown ("טיימר 10 דקות"); use a reminder for something to remember at a time ("תזכיר לי ב-8 ל...", "תזכיר לי בעוד שעה...").
 Requests may start with the wake phrase "היי בית"; ignore it.
-Act first with tools, then reply in one or two short spoken Hebrew sentences. No markdown, no emoji, no lists. Say times the way Israelis say them.
+Act first with tools, then reply. Your reply is read aloud: natural spoken Hebrew, usually one to three sentences; longer only when the user asks for detail (a recipe, an explanation), and even then no markdown, no emoji, no lists, no links. Say times the way Israelis say them.
+If the user asks for something you have no tool for (for example sending a WhatsApp message or controlling the Switcher boiler), say briefly that it is not connected to the tablet yet.
 When adding an event, resolve relative days ("ביום שלישי", "מחר") from the current date; if the time is unclear, ask briefly instead of guessing.
 If a tool says a service is not connected, tell the user to open הגדרות. If a speaker is missing, tell them to say "Alexa, play Spotify" to that Echo once.`;
 }
-let chat = [], busy = false;
+let chat = [], busy = false, oPrev = null, oLast = 0, webOk = {claude:true, openai:true};
+function engine(){ return store.get("engine")==="claude" ? "claude" : "openai" }
+async function runTool(name, input, onErr){
+  let out;
+  try{ out = actions[name] ? await actions[name](input||{}) : {error:"unknown tool"} }catch(e){ out = {error:e.message} }
+  if(out && out.error) onErr("פירוט: "+name+" · "+String(out.error).slice(0,160));
+  return JSON.stringify(out).slice(0,6000);
+}
+// Claude (Anthropic Messages API), with Anthropic's web search tool when the account allows it
+async function askClaude(key, text, onErr){
+  chat.push({role:"user",content:text});
+  chat = chat.slice(-14);
+  while(chat.length && (chat[0].role!=="user" || typeof chat[0].content!=="string")) chat.shift();
+  for(let step=0; step<10; step++){
+    const tools = webOk.claude ? [...TOOLS, {type:"web_search_20250305", name:"web_search", max_uses:3}] : TOOLS;
+    const r = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
+      "content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+      body:JSON.stringify({model:MODEL,max_tokens:1000,system:system(),tools,messages:chat})});
+    const j = await r.json();
+    if(!r.ok){
+      if(webOk.claude && r.status===400 && /web.?search/i.test(JSON.stringify(j))){ webOk.claude = false; step--; continue }
+      if(r.status===401) throw new Error("מפתח Claude לא תקין. בדוק אותו בהגדרות.");
+      if(r.status===400 && /credit/i.test(JSON.stringify(j))) throw new Error("נגמר הקרדיט ב-Claude. הטען ב-console.anthropic.com.");
+      throw new Error((j.error&&j.error.message)||"שגיאה מ-Claude");
+    }
+    chat.push({role:"assistant",content:j.content});
+    if(j.stop_reason==="pause_turn") continue;
+    const uses = j.content.filter(c=>c.type==="tool_use");
+    if(!uses.length) return j.content.filter(c=>c.type==="text").map(c=>c.text).join("").trim();
+    const results = [];
+    for(const u of uses) results.push({type:"tool_result",tool_use_id:u.id,content:await runTool(u.name,u.input,onErr)});
+    chat.push({role:"user",content:results});
+  }
+  return "";
+}
+// ChatGPT (OpenAI Responses API): conversation kept server-side via previous_response_id; web search built in
+function respText(j){
+  if(typeof j.output_text==="string") return j.output_text;
+  return (j.output||[]).filter(o=>o.type==="message").flatMap(o=>o.content||[]).filter(c=>c.type==="output_text").map(c=>c.text).join("");
+}
+async function askOpenAI(key, text, onErr){
+  const model = (store.get("omodel")||"gpt-5-mini").trim();
+  const fnTools = TOOLS.map(t=>({type:"function",name:t.name,description:t.description,parameters:t.input_schema}));
+  if(Date.now()-oLast > 15*60*1000) oPrev = null;          // start a fresh conversation after 15 quiet minutes
+  let input = [{role:"user",content:text}];
+  for(let step=0; step<10; step++){
+    const tools = webOk.openai ? [...fnTools, {type:"web_search"}] : fnTools;
+    const body = {model, instructions:system(), input, tools};
+    if(oPrev) body.previous_response_id = oPrev;
+    const r = await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+key},body:JSON.stringify(body)});
+    const j = await r.json();
+    if(!r.ok){
+      const msg = JSON.stringify(j);
+      if(webOk.openai && r.status===400 && /web_search/i.test(msg)){ webOk.openai = false; step--; continue }
+      if(oPrev && r.status===400 && /previous_response/i.test(msg)){ oPrev = null; step--; continue }
+      if(r.status===401) throw new Error("מפתח ChatGPT לא תקין. בדוק אותו בהגדרות.");
+      if(r.status===429 && /quota|billing/i.test(msg)) throw new Error("נגמר הקרדיט ב-OpenAI. הטען ב-platform.openai.com ← Billing.");
+      if(r.status===404 || /model/i.test(j.error&&j.error.param||"")) throw new Error("המודל "+model+" לא זמין בחשבון שלך. בחר מודל אחר בהגדרות.");
+      throw new Error((j.error&&j.error.message)||"שגיאה מ-ChatGPT");
+    }
+    oPrev = j.id; oLast = Date.now();
+    const calls = (j.output||[]).filter(o=>o.type==="function_call");
+    if(!calls.length) return respText(j).trim();
+    input = [];
+    for(const c of calls){
+      let args = {}; try{ args = JSON.parse(c.arguments||"{}") }catch(e){}
+      input.push({type:"function_call_output", call_id:c.call_id, output:await runTool(c.name,args,onErr)});
+    }
+  }
+  return "";
+}
 async function ask(text){
-  const key = store.get("akey");
-  if(!key){ say("צריך לחבר את Claude בהגדרות","err"); openSetup(); return }
+  const eng = engine(), key = eng==="openai" ? store.get("okey") : store.get("akey");
+  if(!key){ say("צריך לחבר את העוזר הקולי בהגדרות","err"); openSetup(); return }
   if(busy) return;
   lastTouch = Date.now();
   busy = true; say(text,"me"); status("חושב…"); let detail = "";
   if(rec){ try{ rec.abort() }catch(e){} }
-  chat.push({role:"user",content:text});
-  chat = chat.slice(-14);
-  while(chat.length && (chat[0].role!=="user" || typeof chat[0].content!=="string")) chat.shift();
   try{
-    for(let step=0; step<8; step++){
-      const r = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{
-        "content-type":"application/json","x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({model:MODEL,max_tokens:700,system:system(),tools:TOOLS,messages:chat})});
-      const j = await r.json();
-      if(!r.ok){
-        if(r.status===401) throw new Error("מפתח Claude לא תקין. בדוק אותו בהגדרות.");
-        if(r.status===400 && /credit/i.test(JSON.stringify(j))) throw new Error("נגמר הקרדיט ב-Claude. הטען ב-console.anthropic.com.");
-        throw new Error((j.error&&j.error.message)||"שגיאה מ-Claude");
-      }
-      chat.push({role:"assistant",content:j.content});
-      const uses = j.content.filter(c=>c.type==="tool_use");
-      if(!uses.length){
-        const reply = j.content.filter(c=>c.type==="text").map(c=>c.text).join(" ").trim();
-        if(reply){ say(reply,"ai"); speak(reply) }
-        break;
-      }
-      const results = [];
-      for(const u of uses){
-        let out;
-        try{ out = actions[u.name] ? await actions[u.name](u.input||{}) : {error:"unknown tool"} }catch(e){ out = {error:e.message} }
-        if(out && out.error) detail = "פירוט: "+u.name+" · "+String(out.error).slice(0,160);
-        results.push({type:"tool_result",tool_use_id:u.id,content:JSON.stringify(out).slice(0,6000)});
-      }
-      chat.push({role:"user",content:results});
-    }
-  }catch(e){ say(e.message,"err"); chat = [] }
+    const reply = eng==="openai" ? await askOpenAI(key, text, d=>detail = d) : await askClaude(key, text, d=>detail = d);
+    if(reply){ say(reply,"ai"); speak(reply) }
+  }catch(e){ say(e.message,"err"); chat = []; oPrev = null }
   busy = false; status(detail); setTimeout(loadMusic,800); resumeListening();
 }
 let speaking = false, speakGuard = null, speakSeq = 0;
@@ -1049,22 +1111,38 @@ $("typeForm").onsubmit = e=>{ e.preventDefault(); const t=$("txt").value.trim();
 /* ---------- setup wizard ---------- */
 function badge(el, done, label){ el.className = "badge "+(done?"done":"todo"); el.textContent = done ? "מחובר ✓" : label }
 function refreshSetup(){
-  badge($("stClaude"), !!store.get("akey"), "להגדרה");
+  badge($("stClaude"), !!store.get(engine()==="openai" ? "okey" : "akey"), "להגדרה");
+  $("engOpenai").checked = engine()==="openai"; $("engClaude").checked = engine()==="claude";
+  $("cfgOpenai").hidden = engine()!=="openai"; $("cfgClaude").hidden = engine()!=="claude";
   badge($("stSpotify"), !!store.get("sp_rt"), "להגדרה");
   badge($("stMs"), !!store.get("ms_rt"), "להגדרה");
 }
-function allConnected(){ return store.get("akey") && store.get("sp_rt") && store.get("ms_rt") }
+function allConnected(){ return store.get(engine()==="openai" ? "okey" : "akey") && store.get("sp_rt") && store.get("ms_rt") }
 function saveFields(){
   store.set("akey",$("akey").value.trim()||null);
+  store.set("okey",$("okey").value.trim()||null);
+  store.set("omodel",$("omodel").value.trim()||null);
   store.set("cid",$("cid").value.trim()||null);
   store.set("mcid",$("mcid").value.trim()||null);
   refreshSetup();
 }
 function openSetup(){
-  $("akey").value = store.get("akey")||""; $("cid").value = store.get("cid")||""; $("mcid").value = store.get("mcid")||"";
+  $("akey").value = store.get("akey")||""; $("okey").value = store.get("okey")||""; $("omodel").value = store.get("omodel")||""; loadModels(); $("cid").value = store.get("cid")||""; $("mcid").value = store.get("mcid")||"";
   refreshSetup(); if(!$("setup").open) $("setup").showModal();
 }
-["akey","cid","mcid"].forEach(id=>$(id).addEventListener("change", saveFields));
+["akey","okey","omodel","cid","mcid"].forEach(id=>$(id).addEventListener("change", saveFields));
+$("okey").addEventListener("change", loadModels);
+document.querySelectorAll('input[name="engine"]').forEach(r=>r.onchange = ()=>{ store.set("engine", r.value); chat = []; oPrev = null; refreshSetup() });
+// Fill the model suggestions from the user's own OpenAI account
+async function loadModels(){
+  const key = store.get("okey"); if(!key) return;
+  try{
+    const r = await fetch("https://api.openai.com/v1/models",{headers:{Authorization:"Bearer "+key}});
+    if(!r.ok) return;
+    const ids = (await r.json()).data.map(m=>m.id).filter(id=>/^(gpt|o\d|chatgpt)/i.test(id) && !/audio|realtime|transcribe|tts|image|search|embedding|instruct/i.test(id)).sort().reverse();
+    $("omodels").innerHTML = ids.map(id=>`<option value="${esc(id)}"></option>`).join("");
+  }catch(e){}
+}
 $("openSetup").onclick = openSetup;
 $("closeSetup").onclick = ()=>{ saveFields(); $("setup").close(); bootData() };
 $("loginSp").onclick = ()=>{ saveFields(); if(!store.get("cid")){ $("cid").focus(); return } login("sp") };
@@ -1173,7 +1251,7 @@ loadScreenSettings(); refreshPhotoIds();
 function bootData(){ loadWeather(); loadCalendar(); loadShop(); loadMusic(); loadReminders() }
 (async ()=>{
   await handleRedirect();
-  if(!store.get("akey") && !store.get("sp_rt") && !store.get("ms_rt")) openSetup();
+  if(!store.get("akey") && !store.get("okey") && !store.get("sp_rt") && !store.get("ms_rt")) openSetup();
   bootData();
   checkUpdate();
   setInterval(loadMusic, 15000);
