@@ -240,7 +240,7 @@ dialog a{color:var(--sky)}
 
   <footer>
     <span id="status"></span>
-    <span><span id="ver"></span> · <button class="link" id="showPhotos">תמונות</button> · <button class="link" id="openSetup">הגדרות</button></span>
+    <span><span id="ver"></span> · <button class="link" id="forceUpd">בדוק עדכונים</button> · <button class="link" id="showPhotos">תמונות</button> · <button class="link" id="openSetup">הגדרות</button></span>
   </footer>
 </div>
 
@@ -318,7 +318,7 @@ dialog a{color:var(--sky)}
 </div>
 
 <script>
-const APP_VERSION = "2.3.1";
+const APP_VERSION = "2.4.0";
 const $ = id => document.getElementById(id);
 const store = {
   get(k){ try{return localStorage.getItem(k)}catch(e){return null} },
@@ -378,6 +378,23 @@ function waitQuietThenReload(){
   }, 15000);
 }
 if("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+// Manual "check now": installs a newer version immediately, without waiting for a quiet moment
+async function forceUpdate(){
+  const b = $("forceUpd"), reset = ms=>setTimeout(()=>b.textContent = "בדוק עדכונים", ms);
+  b.textContent = "בודק…";
+  try{
+    const r = await fetch("version.json?t="+Date.now(), {cache:"no-store"});
+    if(!r.ok) throw new Error();
+    const v = (await r.json()).version;
+    if(v === APP_VERSION){ b.textContent = "מעודכן ✓ גרסה "+v; reset(4000); return }
+    b.textContent = "מעדכן לגרסה "+v+"…";
+    try{ await fetch("./", {cache:"reload"}) }catch(e){}
+    try{ const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration(); if(reg) await reg.update() }catch(e){}
+    try{ for(const k of await caches.keys()) await caches.delete(k) }catch(e){}
+    location.reload();
+  }catch(e){ b.textContent = "אין חיבור לאתר, נסה שוב"; reset(5000) }
+}
+$("forceUpd").onclick = forceUpdate;
 setInterval(checkUpdate, 15*60*1000);
 
 /* ---------- OAuth PKCE (Spotify + Microsoft) ---------- */
